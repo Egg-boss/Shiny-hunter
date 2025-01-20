@@ -16,9 +16,6 @@ P2A_PREMIUM_ID = 1254602968938844171  # P2A Premium's ID
 TRIGGER_PHRASES = ["shiny hunt pings", "collection pings", "rare ping"]
 SHINY_PHRASE = "these colors seem unusual..✨"
 
-# Role ID for unlocking channels
-UNLOCK_ROLE_ID = 123456789012345678  # Replace with the actual role ID
-
 # Logging channel ID
 LOG_CHANNEL_ID = 987654321098765432  # Replace with the actual channel ID for logging
 
@@ -86,8 +83,9 @@ async def send_unlock_button(channel):
 
         @discord.ui.button(label="Unlock Channel", style=discord.ButtonStyle.green)
         async def unlock(self, interaction: discord.Interaction, button: Button):
-            role = interaction.guild.get_role(UNLOCK_ROLE_ID)
-            if role in interaction.user.roles:
+            # Check if the user has a role named "unlock"
+            has_unlock_role = any(role.name.lower() == "unlock" for role in interaction.user.roles)
+            if has_unlock_role:
                 await unlock_channel(channel)
                 await interaction.response.send_message("Channel unlocked!", ephemeral=True)
                 self.stop()
@@ -141,7 +139,7 @@ async def ping(ctx):
 @bot.command(name="owner")
 async def owner(ctx):
     """Responds with the owner information."""
-    await ctx.send("This bot is owned by Fucking Cloudz Suk my Ballz. All rights reserved!")
+    await ctx.send("This bot is owned by Fucking Cloudz Bro Suk ballz. All rights reserved!")
 
 
 @bot.command(name="d")
@@ -176,3 +174,4 @@ async def send_congratulations(channel):
 
 # Run the bot
 bot.run(BOT_TOKEN)
+    
