@@ -8,8 +8,8 @@ from dotenv import load_dotenv
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# Discord User IDs
-POKETWO_ID = 716390085896962058  # Pokétwo's default ID
+# Replace with Pokétwo's User ID
+POKETWO_ID = 716390085896962058  # Replace this with Pokétwo's actual User ID if needed
 
 # Intents setup
 intents = discord.Intents.default()
@@ -37,9 +37,11 @@ async def lock(ctx):
     """Locks the channel from Pokétwo and sends an unlock button."""
     guild = ctx.guild
     channel = ctx.channel
-    poketwo = guild.get_member(POKETWO_ID)
 
-    if not poketwo:
+    # Fetch Pokétwo member
+    try:
+        poketwo = await guild.fetch_member(POKETWO_ID)  # Use fetch_member for reliability
+    except discord.NotFound:
         await ctx.send("Pokétwo bot not found in this server.")
         return
 
@@ -78,9 +80,9 @@ async def lock(ctx):
 async def unlock_channel(channel):
     """Unlocks the channel by restoring permissions for Pokétwo."""
     guild = channel.guild
-    poketwo = guild.get_member(POKETWO_ID)
-
-    if not poketwo:
+    try:
+        poketwo = await guild.fetch_member(POKETWO_ID)
+    except discord.NotFound:
         print("Pokétwo bot not found in this server.")
         return
 
