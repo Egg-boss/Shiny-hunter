@@ -74,30 +74,36 @@ async def lock(ctx):
 
         @discord.ui.button(label="Unlock Channel", style=discord.ButtonStyle.green)
         async def unlock_button(self, interaction: discord.Interaction, button: Button):
-            if interaction.user.guild_permissions.manage_channels:
+            # Check if the user has the "unlock" role
+            unlock_role = discord.utils.get(interaction.guild.roles, name="unlock")
+            if unlock_role in interaction.user.roles:
                 await unlock_channel(ctx.channel)
                 await interaction.response.send_message("Channel unlocked!", ephemeral=True)
                 self.stop()
             else:
                 await interaction.response.send_message(
-                    "You don't have permission to unlock this channel.", ephemeral=True
+                    "You don't have the required role to unlock this channel.", ephemeral=True
                 )
 
     await ctx.send(embed=embed, view=UnlockView())
 
 
 @bot.command(name="unlock")
-@commands.has_permissions(manage_channels=True)
 async def unlock(ctx):
-    """Manually unlocks the channel for Pokétwo and sends an embed."""
-    await unlock_channel(ctx.channel)
-    embed = discord.Embed(
-        title="Channel Unlocked",
-        description="The channel has been unlocked for Pokétwo.",
-        color=discord.Color.green(),
-    )
-    embed.set_footer(text="You can lock the channel again using the lock command.")
-    await ctx.send(embed=embed)
+    """Manually unlocks the channel for Pokétwo if the user has the 'unlock' role."""
+    # Check if the user has the "unlock" role
+    unlock_role = discord.utils.get(ctx.guild.roles, name="unlock")
+    if unlock_role in ctx.author.roles:
+        await unlock_channel(ctx.channel)
+        embed = discord.Embed(
+            title="Channel Unlocked",
+            description="The channel has been unlocked for Pokétwo.",
+            color=discord.Color.green(),
+        )
+        embed.set_footer(text="You can lock the channel again using the lock command.")
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send("You don't have the required role to unlock this channel.")
 
 
 async def lock_channel(channel):
