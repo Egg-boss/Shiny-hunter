@@ -63,11 +63,15 @@ async def lock_channel(channel):
         print("Pokétwo bot not found in this server.")
         return
 
-    # Deny both view_channel and send_messages permissions
+    # Deny permissions for Pokétwo at the channel level
     overwrite = channel.overwrites_for(poketwo)
     overwrite.view_channel = False
     overwrite.send_messages = False
     await channel.set_permissions(poketwo, overwrite=overwrite)
+
+    # Debugging: Check permissions
+    updated_permissions = channel.overwrites_for(poketwo)
+    print(f"Updated permissions for Pokétwo in {channel.name}: {updated_permissions}")
 
     print(f"Locked channel: {channel.name}")
     await channel.send(f"The channel has been locked for Pokétwo.")
@@ -118,7 +122,7 @@ async def send_unlock_button(channel):
 
         @discord.ui.button(label="Unlock Channel", style=discord.ButtonStyle.green)
         async def unlock(self, interaction: discord.Interaction, button: Button):
-            # Check if the user has a role named "unlock"
+            # Check if the interacting user has a role named "unlock"
             has_unlock_role = any(role.name.lower() == "unlock" for role in interaction.user.roles)
             if has_unlock_role:
                 await unlock_channel(channel)
@@ -192,4 +196,3 @@ async def send_congratulations(channel):
 
 # Run the bot
 bot.run(BOT_TOKEN)
-        
