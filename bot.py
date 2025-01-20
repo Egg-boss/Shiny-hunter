@@ -63,6 +63,7 @@ async def lock_channel(channel):
         print("Pokétwo bot not found in this server.")
         return
 
+    # Deny both view_channel and send_messages permissions
     overwrite = channel.overwrites_for(poketwo)
     overwrite.view_channel = False
     overwrite.send_messages = False
@@ -73,6 +74,40 @@ async def lock_channel(channel):
 
     # Log the lock action
     await log_action(channel.guild, f"🔒 Locked channel: {channel.mention}")
+
+
+async def unlock_channel(channel):
+    """Unlocks the channel by restoring permissions for Pokétwo."""
+    guild = channel.guild
+    poketwo = guild.get_member(POKETWO_ID)
+
+    if not poketwo:
+        print("Pokétwo bot not found in this server.")
+        return
+
+    # Restore permissions
+    await channel.set_permissions(poketwo, overwrite=None)
+    print(f"Unlocked channel: {channel.name}")
+    await channel.send("The channel has been unlocked!")
+
+    # Log the unlock action
+    await log_action(channel.guild, f"🔓 Unlocked channel: {channel.mention}")
+
+
+@bot.command(name="lock")
+@commands.has_permissions(manage_channels=True)
+async def lock_command(ctx):
+    """Locks the current channel."""
+    await lock_channel(ctx.channel)
+    await ctx.send("This channel has been locked!")
+
+
+@bot.command(name="unlock")
+@commands.has_permissions(manage_channels=True)
+async def unlock_command(ctx):
+    """Unlocks the current channel."""
+    await unlock_channel(ctx.channel)
+    await ctx.send("This channel has been unlocked!")
 
 
 async def send_unlock_button(channel):
@@ -104,23 +139,6 @@ async def send_unlock_button(channel):
     await channel.send(embed=embed, view=UnlockView())
 
 
-async def unlock_channel(channel):
-    """Unlocks the channel by restoring permissions for Pokétwo."""
-    guild = channel.guild
-    poketwo = guild.get_member(POKETWO_ID)
-
-    if not poketwo:
-        print("Pokétwo bot not found in this server.")
-        return
-
-    await channel.set_permissions(poketwo, overwrite=None)
-    print(f"Unlocked channel: {channel.name}")
-    await channel.send("The channel has been unlocked!")
-
-    # Log the unlock action
-    await log_action(channel.guild, f"🔓 Unlocked channel: {channel.mention}")
-
-
 async def log_action(guild, message):
     """Logs an action to the designated logging channel."""
     log_channel = guild.get_channel(LOG_CHANNEL_ID)
@@ -139,7 +157,7 @@ async def ping(ctx):
 @bot.command(name="owner")
 async def owner(ctx):
     """Responds with the owner information."""
-    await ctx.send("This bot is owned by Fucking Cloudz Bro Suk ballz. All rights reserved!")
+    await ctx.send("This bot is owned by **Cloud**. All rights reserved!")
 
 
 @bot.command(name="d")
@@ -174,4 +192,4 @@ async def send_congratulations(channel):
 
 # Run the bot
 bot.run(BOT_TOKEN)
-    
+        
