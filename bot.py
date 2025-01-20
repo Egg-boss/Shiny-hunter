@@ -7,13 +7,13 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+# Discord User IDs
 POKETWO_ID = 716390085896962058  # Pokétwo's default ID
+P2A_PREMIUM_ID = 1084324788679577650  # P2A Premium's ID
 
-# Optional: Replace with a role ID for pings (or set to None to disable pings)
-PING_ROLE_ID = None  # Replace with your role ID or None
-
-# Phrases that trigger the lock (case-insensitive)
-SHINY_HUNT_PHRASES = ["shiny hunt pings", "rare ping"]
+# Trigger phrases (case-insensitive)
+TRIGGER_PHRASES = ["shiny hunt ping", "rare ping", "collection ping"]
 
 # Intents setup
 intents = discord.Intents.default()
@@ -27,33 +27,33 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 @bot.event
 async def on_ready():
     print(f"Bot is online as {bot.user}")
+    # Sync application commands (slash commands)
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} command(s).")
+    except Exception as e:
+        print(f"Error syncing commands: {e}")
 
 
 @bot.event
 async def on_message(message):
-    """Detect Shiny hunt pings or rare ping and lock the channel."""
-    if message.author.id == POKETWO_ID and any(phrase in message.content.lower() for phrase in SHINY_HUNT_PHRASES):
-        # Send ping message if configured
-        await send_custom_ping(message.channel)
-
+    """Detect specific pings from P2A Premium and lock the channel."""
+    # Check if the message is from P2A Premium and contains trigger phrases
+    if message.author.id == P2A_PREMIUM_ID and any(phrase in message.content.lower() for phrase in TRIGGER_PHRASES):
         # Lock the channel
         await lock_channel(message.channel)
 
         # Send unlock button
         await send_unlock_button(message.channel)
+
+    # Allow other bot commands to process
     await bot.process_commands(message)
 
 
-async def send_custom_ping(channel):
-    """Send a ping message to a specific role or users."""
-    if PING_ROLE_ID:
-        role = channel.guild.get_role(PING_ROLE_ID)
-        if role:
-            await channel.send(f"{role.mention} A shiny or rare hunt has appeared! React quickly!")
-        else:
-            print("Ping role not found.")
-    else:
-        await channel.send("A shiny or rare hunt has appeared! React quickly!")
+@bot.command(name="ping")
+async def ping(ctx):
+    """Responds with Pong!"""
+    await ctx.send("Pong!")
 
 
 async def lock_channel(channel):
@@ -75,4 +75,23 @@ async def lock_channel(channel):
 
 async def send_unlock_button(channel):
     """Sends an unlock button in the channel."""
-    cl
+    class UnlockView(View):
+        def __init__(self):
+            super().__init__(timeout=None)
+
+        @discord.ui.button(label="Unlock Channel", style=discord.ButtonStyle.green)
+        async def unlock(self, interaction: discord.Interaction, button: Button):
+            # Ensure the user has permission to manage channels
+            if interaction.user.guild_permissions.manage_channels:
+                await unlock_channel(channel)
+                await interaction.response.send_message("Channel unlocked!", ephemeral=True)
+                self.stop()
+            else:
+                await interaction.response.send_message("You don't have permission to unlock this channel.", ephemeral=True)
+
+    await channel.send("Click the button below to unlock the channel.", view=UnlockView())
+
+
+async def unlock_channel(channel):
+    """Unlocks the channel by restoring permissions for Pokét
+    
