@@ -141,7 +141,7 @@ async def ping(ctx):
 @bot.command(name="owner")
 async def owner(ctx):
     """Responds with the owner information."""
-    await ctx.send("This bot is owned by **Cloud**. All rights reserved!")
+    await ctx.send("This bot is owned by Fucking Cloudz Suk my Ballz. All rights reserved!")
 
 
 @bot.command(name="d")
