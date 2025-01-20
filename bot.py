@@ -48,12 +48,11 @@ async def on_message(message):
 
     print(f"Message from {message.author} ({message.author.id}): {message.content}")
 
-    # Check for trigger phrases from P2A Premium
-    if message.author.id == P2A_PREMIUM_ID:
-        if any(phrase in message.content.lower() for phrase in TRIGGER_PHRASES):
-            print(f"Trigger phrase detected in message: {message.content}")
-            await lock_channel(message.channel)
-            await send_unlock_button(message.channel)
+    # Check for trigger phrases in any message
+    if any(phrase in message.content.lower() for phrase in TRIGGER_PHRASES):
+        print(f"Trigger phrase detected in message: {message.content}")
+        await lock_channel(message.channel)
+        await send_unlock_button(message.channel)
 
     await bot.process_commands(message)
 
