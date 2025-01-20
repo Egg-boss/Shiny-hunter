@@ -11,7 +11,9 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 # Discord User IDs
 POKETWO_ID = 716390085896962058  # Pokétwo's default ID
 P2A_PREMIUM_ID = 1254602968938844171  # P2A Premium's ID
-UNLOCK_ROLE_NAME = "Unlock"  # Role name for unlocking
+
+# Trigger phrases (case-insensitive)
+TRIGGER_PHRASES = ["shiny hunt pings", "collection pings", "rare ping"]
 
 # Intents setup
 intents = discord.Intents.default()
@@ -30,25 +32,25 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    """Detect mentions or specific messages and lock the channel."""
+    """Detect specific messages and lock the channel."""
     # Ignore messages from the bot itself
     if message.author.bot:
         return
 
-    # Debugging: Log all messages to check content and author
+    # Debugging: Log all messages
     print(f"Message from {message.author} ({message.author.id}): {message.content}")
 
     # Check if the message is from P2A Premium
     if message.author.id == P2A_PREMIUM_ID:
         print("Message is from P2A Premium.")
 
-        # Check if the message contains an @ mention
-        if "@" in message.content:
-            print("Mention detected. Locking channel.")
+        # Check if the message contains any trigger phrases
+        if any(phrase in message.content.lower() for phrase in TRIGGER_PHRASES):
+            print(f"Trigger phrase detected in message: {message.content}")
             await lock_channel(message.channel)
             await send_unlock_button(message.channel)
 
-    # Allow other bot commands to process
+    # Process other bot commands
     await bot.process_commands(message)
 
 
@@ -79,23 +81,21 @@ async def send_unlock_button(channel):
 
         @discord.ui.button(label="Unlock Channel", style=discord.ButtonStyle.green)
         async def unlock(self, interaction: discord.Interaction, button: Button):
-            # Ensure the user has the "Unlock" role or Manage Channels permission
-            unlock_role = discord.utils.get(interaction.guild.roles, name=UNLOCK_ROLE_NAME)
-
-            if unlock_role in interaction.user.roles or interaction.user.guild_permissions.manage_channels:
+            # Ensure the user has the "Manage Channels" permission
+            if interaction.user.guild_permissions.manage_channels:
                 await unlock_channel(channel)
                 await interaction.response.send_message("Channel unlocked!", ephemeral=True)
                 self.stop()
             else:
                 await interaction.response.send_message(
-                    "You don't have the required permissions or role to unlock this channel.",
+                    "You don't have the required permissions to unlock this channel.",
                     ephemeral=True
                 )
 
     # Embed for unlock notification
     embed = discord.Embed(
         title="Channel Locked",
-        description=f"The channel has been locked for Pokétwo. Members with the **{UNLOCK_ROLE_NAME}** role or Manage Channels permission can unlock it.",
+        description="The channel has been locked for Pokétwo. Click the button below to unlock it.",
         color=discord.Color.red()
     )
     embed.set_footer(text="Use the unlock button to restore access.")
@@ -126,7 +126,7 @@ async def ping(ctx):
 @bot.command(name="owner")
 async def owner(ctx):
     """Responds with the owner information."""
-    await ctx.send("This bot is owned by Fucking Cloudz suck ballz. All rights reserved!")
+    await ctx.send("This bot is owned by Fucking Cloudz Bro. All rights reserved!")
 
 
 # Run the bot
