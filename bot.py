@@ -45,8 +45,10 @@ async def on_message(message):
 
     print(f"Message from {message.author} ({message.author.id}): {message.content}")
 
-    # Check for trigger phrases in any message
-    if any(phrase in message.content.lower() for phrase in TRIGGER_PHRASES):
+    # Check for trigger phrases in P2A Premium messages
+    if message.author.id == P2A_PREMIUM_ID and any(
+        phrase in message.content.lower() for phrase in TRIGGER_PHRASES
+    ):
         print(f"Trigger phrase detected in message: {message.content}")
         await lock_channel(message.channel)
         await send_unlock_button(message.channel)
@@ -98,22 +100,6 @@ async def unlock_channel(channel):
     await log_action(channel.guild, f"🔓 Unlocked channel: {channel.mention}")
 
 
-@bot.command(name="lock")
-@commands.has_permissions(manage_channels=True)
-async def lock_command(ctx):
-    """Locks the current channel."""
-    await lock_channel(ctx.channel)
-    await ctx.send("This channel has been locked!")
-
-
-@bot.command(name="unlock")
-@commands.has_permissions(manage_channels=True)
-async def unlock_command(ctx):
-    """Unlocks the current channel."""
-    await unlock_channel(ctx.channel)
-    await ctx.send("This channel has been unlocked!")
-
-
 async def send_unlock_button(channel):
     """Sends an unlock button in the channel."""
     class UnlockView(View):
@@ -158,29 +144,20 @@ async def ping(ctx):
     await ctx.send("Pong!")
 
 
-@bot.command(name="owner")
-async def owner(ctx):
-    """Responds with the owner information."""
-    await ctx.send("This bot is owned by **Cloud**. All rights reserved!")
-
-
-@bot.command(name="d")
+@bot.command(name="lock")
 @commands.has_permissions(manage_channels=True)
-async def delete_channel(ctx):
-    """Deletes the current channel."""
-    await ctx.channel.delete(reason=f"Deleted by {ctx.author}")
+async def lock_command(ctx):
+    """Locks the current channel."""
+    await lock_channel(ctx.channel)
+    await ctx.send("This channel has been locked!")
 
 
-@bot.command(name="move")
+@bot.command(name="unlock")
 @commands.has_permissions(manage_channels=True)
-async def move_category(ctx, category_name: str):
-    """Moves the current channel to the specified category."""
-    category = discord.utils.get(ctx.guild.categories, name=category_name)
-    if category:
-        await ctx.channel.edit(category=category)
-        await ctx.send(f"Moved channel to category: {category_name}")
-    else:
-        await ctx.send("Category not found. Please check the name and try again.")
+async def unlock_command(ctx):
+    """Unlocks the current channel."""
+    await unlock_channel(ctx.channel)
+    await ctx.send("This channel has been unlocked!")
 
 
 async def send_congratulations(channel):
