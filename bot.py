@@ -57,6 +57,35 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
+@bot.command(name="d")
+@commands.has_permissions(manage_channels=True)
+async def delete_channel(ctx):
+    """Deletes the channel where the command is sent."""
+    channel = ctx.channel
+    await ctx.send(f"Deleting channel **{channel.name}**...")
+    await channel.delete(reason=f"Deleted by {ctx.author} using the !d command.")
+
+
+@bot.command(name="move")
+@commands.has_permissions(manage_channels=True)
+async def move_channel(ctx, channel_id: int, category_id: int):
+    """Moves a specified channel to a different category."""
+    guild = ctx.guild
+    channel = guild.get_channel(channel_id)
+    category = guild.get_channel(category_id)
+
+    if not channel:
+        await ctx.send("Invalid channel ID. Please provide a valid channel ID.")
+        return
+    if not category or not isinstance(category, discord.CategoryChannel):
+        await ctx.send("Invalid category ID. Please provide a valid category ID.")
+        return
+
+    # Move the channel to the new category
+    await channel.edit(category=category)
+    await ctx.send(f"Moved channel **{channel.name}** to category **{category.name}**.")
+
+
 @bot.command(name="lock")
 async def lock(ctx):
     """Locks the channel from Pokétwo and sends an unlock button."""
@@ -119,27 +148,6 @@ async def unlock_channel(channel):
     await channel.send("The channel has been unlocked!")
 
 
-@bot.command(name="blacklist")
-async def blacklist(ctx, action: str = None):
-    """Manages the blacklist of channels."""
-    channel_id = ctx.channel.id
-
-    if action == "add":
-        blacklisted_channels.add(channel_id)
-        await ctx.send(f"Channel **{ctx.channel.name}** has been added to the blacklist.")
-    elif action == "remove":
-        blacklisted_channels.discard(channel_id)
-        await ctx.send(f"Channel **{ctx.channel.name}** has been removed from the blacklist.")
-    elif action == "list":
-        if not blacklisted_channels:
-            await ctx.send("No channels are currently blacklisted.")
-        else:
-            channel_list = "\n".join([f"<#{ch_id}>" for ch_id in blacklisted_channels])
-            await ctx.send(f"Blacklisted Channels:\n{channel_list}")
-    else:
-        await ctx.send("Invalid action! Use `!blacklist add`, `!blacklist remove`, or `!blacklist list`.")
-
-
 async def send_congratulations_embed(channel):
     """Sends a congratulations embed when Pokétwo says 'these colors seem unusual..✨'."""
     embed = discord.Embed(
@@ -165,3 +173,4 @@ async def owner(ctx):
 
 # Run the bot
 bot.run(BOT_TOKEN)
+                           
