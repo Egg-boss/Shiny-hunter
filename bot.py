@@ -19,6 +19,9 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# Keywords to monitor in messages
+KEYWORDS = ["shiny hunt pings", "collection pings", "rare ping"]
+
 
 @bot.event
 async def on_ready():
@@ -32,49 +35,86 @@ async def on_ready():
         print(f"Error syncing slash commands: {e}")
 
 
+@bot.event
+async def on_message(message):
+    """Monitor messages from all bots."""
+    if message.author == bot.user:
+        return  # Ignore the bot's own messages
+
+    if message.author.bot:  # Check if the message is from a bot
+        # Check for exact keywords in the message content
+        if any(keyword in message.content.lower() for keyword in KEYWORDS):
+            await lock_channel(message.channel)
+            embed = discord.Embed(
+                title="Channel Locked",
+                description=f"The channel has been locked due to detected bot activity containing the following keywords: {', '.join(KEYWORDS)}.",
+                color=discord.Color.red(),
+            )
+            embed.set_footer(text="Use the unlock command or button to restore access.")
+            await message.channel.send(embed=embed)
+    await bot.process_commands(message)  # Ensure commands still work
+
+
 @bot.command(name="lock")
+@commands.has_permissions(manage_channels=True)
 async def lock(ctx):
-    """Locks the channel from Pokétwo and sends an unlock button."""
-    guild = ctx.guild
-    channel = ctx.channel
-
-    # Fetch Pokétwo member
-    try:
-        poketwo = await guild.fetch_member(POKETWO_ID)  # Use fetch_member for reliability
-    except discord.NotFound:
-        await ctx.send("Pokétwo bot not found in this server.")
-        return
-
-    # Lock the channel for Pokétwo
-    overwrite = channel.overwrites_for(poketwo)
-    overwrite.view_channel = False
-    overwrite.send_messages = False
-    await channel.set_permissions(poketwo, overwrite=overwrite)
-
-    # Create an embed
+    """Manually locks the channel for Pokétwo and sends an embed with an unlock button."""
+    await lock_channel(ctx.channel)
     embed = discord.Embed(
         title="Channel Locked",
-        description="The channel has been locked for Pokétwo. Click the button below to unlock it.",
-        color=discord.Color.red()
+        description="The channel has been manually locked for Pokétwo.",
+        color=discord.Color.red(),
     )
-    embed.set_footer(text="Use the unlock button to restore access.")
+    embed.set_footer(text="Use the unlock button or command to restore access.")
 
-    # Send the unlock button
+    # Add unlock button
     class UnlockView(View):
         def __init__(self):
             super().__init__(timeout=None)
 
         @discord.ui.button(label="Unlock Channel", style=discord.ButtonStyle.green)
-        async def unlock(self, interaction: discord.Interaction, button: Button):
-            # Ensure the user has permission to manage channels
+        async def unlock_button(self, interaction: discord.Interaction, button: Button):
             if interaction.user.guild_permissions.manage_channels:
-                await unlock_channel(channel)
+                await unlock_channel(ctx.channel)
                 await interaction.response.send_message("Channel unlocked!", ephemeral=True)
                 self.stop()
             else:
-                await interaction.response.send_message("You don't have permission to unlock this channel.", ephemeral=True)
+                await interaction.response.send_message(
+                    "You don't have permission to unlock this channel.", ephemeral=True
+                )
 
     await ctx.send(embed=embed, view=UnlockView())
+
+
+@bot.command(name="unlock")
+@commands.has_permissions(manage_channels=True)
+async def unlock(ctx):
+    """Manually unlocks the channel for Pokétwo and sends an embed."""
+    await unlock_channel(ctx.channel)
+    embed = discord.Embed(
+        title="Channel Unlocked",
+        description="The channel has been unlocked for Pokétwo.",
+        color=discord.Color.green(),
+    )
+    embed.set_footer(text="You can lock the channel again using the lock command.")
+    await ctx.send(embed=embed)
+
+
+async def lock_channel(channel):
+    """Locks the channel for Pokétwo."""
+    guild = channel.guild
+    try:
+        poketwo = await guild.fetch_member(POKETWO_ID)
+    except discord.NotFound:
+        print("Pokétwo bot not found in this server.")
+        return
+
+    # Set permissions to lock the channel for Pokétwo
+    overwrite = channel.overwrites_for(poketwo)
+    overwrite.view_channel = False
+    overwrite.send_messages = False
+    await channel.set_permissions(poketwo, overwrite=overwrite)
+    print(f"Locked channel: {channel.name}")
 
 
 async def unlock_channel(channel):
@@ -89,7 +129,6 @@ async def unlock_channel(channel):
     # Restore default permissions for Pokétwo
     await channel.set_permissions(poketwo, overwrite=None)
     print(f"Unlocked channel: {channel.name}")
-    await channel.send("The channel has been unlocked!")
 
 
 @bot.command(name="ping")
