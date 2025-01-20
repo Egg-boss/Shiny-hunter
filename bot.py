@@ -10,7 +10,8 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # Discord User IDs
 POKETWO_ID = 716390085896962058  # Pokétwo's default ID
-P2A_PREMIUM_ID = 1084324788679577650  # P2A Premium's ID
+P2A_PREMIUM_ID = 1254602968938844171  # P2A Premium's ID
+UNLOCK_ROLE_NAME = "Unlock"  # Role name for unlocking
 
 # Intents setup
 intents = discord.Intents.default()
@@ -78,18 +79,23 @@ async def send_unlock_button(channel):
 
         @discord.ui.button(label="Unlock Channel", style=discord.ButtonStyle.green)
         async def unlock(self, interaction: discord.Interaction, button: Button):
-            # Ensure the user has permission to manage channels
-            if interaction.user.guild_permissions.manage_channels:
+            # Ensure the user has the "Unlock" role or Manage Channels permission
+            unlock_role = discord.utils.get(interaction.guild.roles, name=UNLOCK_ROLE_NAME)
+
+            if unlock_role in interaction.user.roles or interaction.user.guild_permissions.manage_channels:
                 await unlock_channel(channel)
                 await interaction.response.send_message("Channel unlocked!", ephemeral=True)
                 self.stop()
             else:
-                await interaction.response.send_message("You don't have permission to unlock this channel.", ephemeral=True)
+                await interaction.response.send_message(
+                    "You don't have the required permissions or role to unlock this channel.",
+                    ephemeral=True
+                )
 
     # Embed for unlock notification
     embed = discord.Embed(
         title="Channel Locked",
-        description="The channel has been locked for Pokétwo. Click the button below to unlock it.",
+        description=f"The channel has been locked for Pokétwo. Members with the **{UNLOCK_ROLE_NAME}** role or Manage Channels permission can unlock it.",
         color=discord.Color.red()
     )
     embed.set_footer(text="Use the unlock button to restore access.")
@@ -120,7 +126,7 @@ async def ping(ctx):
 @bot.command(name="owner")
 async def owner(ctx):
     """Responds with the owner information."""
-    await ctx.send("This bot is owned by **Cloud**. All rights reserved!")
+    await ctx.send("This bot is owned by Fucking Cloudz suck ballz. All rights reserved!")
 
 
 # Run the bot
