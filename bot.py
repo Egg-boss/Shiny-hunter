@@ -1,127 +1,66 @@
 import discord
 from discord.ext import commands
-from discord.ui import Button, View
-import os
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-# Discord User IDs
-POKETWO_ID = 716390085896962058  # Pokétwo's default ID
-P2A_PREMIUM_ID = 1084324788679577650  # P2A Premium's ID
-
-# Intents setup
+# Bot setup
 intents = discord.Intents.default()
 intents.messages = True
-intents.message_content = True
 intents.guilds = True
-
+intents.message_content = True  # Required for reading message content
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# Keywords to trigger channel locking
+KEYWORDS = ["shiny hunt", "collection", "rare ping"]
 
 @bot.event
 async def on_ready():
-    """Called when the bot is ready."""
-    print(f"Bot is online as {bot.user}")
-
+    print(f"Logged in as {bot.user}.")
 
 @bot.event
 async def on_message(message):
-    """Detect mentions or specific messages and lock the channel."""
     # Ignore messages from the bot itself
-    if message.author.bot:
+    if message.author == bot.user:
         return
 
-    # Debugging: Log all messages to check content and author
-    print(f"Message from {message.author} ({message.author.id}): {message.content}")
-
-    # Check if the message is from P2A Premium
-    if message.author.id == P2A_PREMIUM_ID:
-        print("Message is from P2A Premium.")
-
-        # Check if the message contains an @ mention
-        if "@" in message.content:
-            print("Mention detected. Locking channel.")
+    # Check if the message is from any bot
+    if message.author.bot:
+        # Check for keywords in the message content
+        if any(keyword in message.content.lower() for keyword in KEYWORDS):
+            # Lock the channel
             await lock_channel(message.channel)
-            await send_unlock_button(message.channel)
-
-    # Allow other bot commands to process
-    await bot.process_commands(message)
-
+            await message.channel.send("Channel locked due to detected bot activity.")
+    await bot.process_commands(message)  # Ensure commands still work
 
 async def lock_channel(channel):
-    """Locks the channel by denying permissions for Pokétwo."""
-    guild = channel.guild
-    poketwo = guild.get_member(POKETWO_ID)
-
-    if not poketwo:
-        print("Pokétwo bot not found in this server.")
-        return
-
-    # Lock the channel for Pokétwo
-    overwrite = channel.overwrites_for(poketwo)
-    overwrite.view_channel = False
-    overwrite.send_messages = False
-    await channel.set_permissions(poketwo, overwrite=overwrite)
-
-    print(f"Locked channel: {channel.name}")
-    await channel.send(f"The channel has been locked for Pokétwo.")
-
-
-async def send_unlock_button(channel):
-    """Sends an unlock button in the channel."""
-    class UnlockView(View):
-        def __init__(self):
-            super().__init__(timeout=None)
-
-        @discord.ui.button(label="Unlock Channel", style=discord.ButtonStyle.green)
-        async def unlock(self, interaction: discord.Interaction, button: Button):
-            # Ensure the user has permission to manage channels
-            if interaction.user.guild_permissions.manage_channels:
-                await unlock_channel(channel)
-                await interaction.response.send_message("Channel unlocked!", ephemeral=True)
-                self.stop()
-            else:
-                await interaction.response.send_message("You don't have permission to unlock this channel.", ephemeral=True)
-
-    # Embed for unlock notification
-    embed = discord.Embed(
-        title="Channel Locked",
-        description="The channel has been locked for Pokétwo. Click the button below to unlock it.",
-        color=discord.Color.red()
-    )
-    embed.set_footer(text="Use the unlock button to restore access.")
-    await channel.send(embed=embed, view=UnlockView())
-
+    """Lock the channel by disabling send messages for all bots."""
+    for member in channel.members:
+        if member.bot:  # Check if the member is a bot
+            overwrite = channel.overwrites_for(member)
+            overwrite.send_messages = False  # Disable sending messages
+            await channel.set_permissions(member, overwrite=overwrite)
+    print(f"Locked {channel.name} for all bots.")
 
 async def unlock_channel(channel):
-    """Unlocks the channel by restoring permissions for Pokétwo."""
-    guild = channel.guild
-    poketwo = guild.get_member(POKETWO_ID)
+    """Unlock the channel by enabling send messages for all bots."""
+    for member in channel.members:
+        if member.bot:  # Check if the member is a bot
+            overwrite = channel.overwrites_for(member)
+            overwrite.send_messages = None  # Reset permission to default
+            await channel.set_permissions(member, overwrite=overwrite)
+    print(f"Unlocked {channel.name} for all bots.")
 
-    if not poketwo:
-        print("Pokétwo bot not found in this server.")
-        return
+@bot.command()
+@commands.has_permissions(manage_channels=True)
+async def lock(ctx):
+    """Manually lock the channel for all bots."""
+    await lock_channel(ctx.channel)
+    await ctx.send("Locked this channel for all bots.")
 
-    # Restore default permissions for Pokétwo
-    await channel.set_permissions(poketwo, overwrite=None)
-    print(f"Unlocked channel: {channel.name}")
-    await channel.send("The channel has been unlocked!")
-
-
-@bot.command(name="ping")
-async def ping(ctx):
-    """Responds with Pong!"""
-    await ctx.send("Pong!")
-
-
-@bot.command(name="owner")
-async def owner(ctx):
-    """Responds with the owner information."""
-    await ctx.send("This bot is owned by **Cloud**. All rights reserved!")
-
+@bot.command()
+@commands.has_permissions(manage_channels=True)
+async def unlock(ctx):
+    """Manually unlock the channel for all bots."""
+    await unlock_channel(ctx.channel)
+    await ctx.send("Unlocked this channel for all bots.")
 
 # Run the bot
-bot.run(BOT_TOKEN)
+bot.run("YOUR_DISCORD_BOT_TOKEN")
