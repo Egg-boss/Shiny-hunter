@@ -93,5 +93,14 @@ async def send_unlock_button(channel):
 
 
 async def unlock_channel(channel):
-    """Unlocks the channel by restoring permissions for Pokét
-    
+    """Unlocks the channel by restoring permissions for Pokétwo."""
+    guild = channel.guild
+    poketwo = guild.get_member(POKETWO_ID)
+
+    if poketwo:
+        # Reset the channel's permission overrides for Pokétwo
+        await channel.set_permissions(poketwo, overwrite=None)
+        print(f"Unlocked channel: {channel.name}")
+        await channel.send("The channel has been unlocked.")
+    else:
+        print("Pokétwo bot not found in this server.")
