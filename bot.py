@@ -8,8 +8,15 @@ from dotenv import load_dotenv
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# Replace with Pokétwo's User ID
-POKETWO_ID = 716390085896962058  # Replace this with Pokétwo's actual User ID if needed
+# Discord User IDs
+POKETWO_ID = 716390085896962058  # Pokétwo's default ID
+P2A_PREMIUM_ID = 1084324788679577650  # P2A Premium's ID
+
+# Trigger phrases (case-insensitive)
+TRIGGER_PHRASES = ["shiny hunt pings", "collection pings"]
+
+# Blacklisted channels (stored as a set for efficiency)
+blacklisted_channels = set()
 
 # Intents setup
 intents = discord.Intents.default()
@@ -24,24 +31,44 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def on_ready():
     """Called when the bot is ready."""
     print(f"Bot is online as {bot.user}")
-    # Sync slash commands
-    try:
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} command(s).")
-    except Exception as e:
-        print(f"Error syncing slash commands: {e}")
+
+
+@bot.event
+async def on_message(message):
+    """Detect specific messages and trigger actions."""
+    # Ignore messages from the bot itself
+    if message.author.bot:
+        return
+
+    # Ignore messages in blacklisted channels
+    if message.channel.id in blacklisted_channels:
+        return
+
+    # Check if the message is from P2A Premium and contains trigger phrases
+    if message.author.id == P2A_PREMIUM_ID and any(phrase in message.content.lower() for phrase in TRIGGER_PHRASES):
+        await lock_channel(message.channel)
+        await send_unlock_button(message.channel)
+
+    # Check if Pokétwo says "these colors seem unusual..✨"
+    if message.author.id == POKETWO_ID and "these colors seem unusual..✨" in message.content.lower():
+        await send_congratulations_embed(message.channel)
+
+    # Process other bot commands
+    await bot.process_commands(message)
 
 
 @bot.command(name="lock")
 async def lock(ctx):
     """Locks the channel from Pokétwo and sends an unlock button."""
+    if ctx.channel.id in blacklisted_channels:
+        await ctx.send("This channel is blacklisted from using the lock command.")
+        return
+
     guild = ctx.guild
     channel = ctx.channel
+    poketwo = guild.get_member(POKETWO_ID)
 
-    # Fetch Pokétwo member
-    try:
-        poketwo = await guild.fetch_member(POKETWO_ID)  # Use fetch_member for reliability
-    except discord.NotFound:
+    if not poketwo:
         await ctx.send("Pokétwo bot not found in this server.")
         return
 
@@ -80,9 +107,9 @@ async def lock(ctx):
 async def unlock_channel(channel):
     """Unlocks the channel by restoring permissions for Pokétwo."""
     guild = channel.guild
-    try:
-        poketwo = await guild.fetch_member(POKETWO_ID)
-    except discord.NotFound:
+    poketwo = guild.get_member(POKETWO_ID)
+
+    if not poketwo:
         print("Pokétwo bot not found in this server.")
         return
 
@@ -90,6 +117,38 @@ async def unlock_channel(channel):
     await channel.set_permissions(poketwo, overwrite=None)
     print(f"Unlocked channel: {channel.name}")
     await channel.send("The channel has been unlocked!")
+
+
+@bot.command(name="blacklist")
+async def blacklist(ctx, action: str = None):
+    """Manages the blacklist of channels."""
+    channel_id = ctx.channel.id
+
+    if action == "add":
+        blacklisted_channels.add(channel_id)
+        await ctx.send(f"Channel **{ctx.channel.name}** has been added to the blacklist.")
+    elif action == "remove":
+        blacklisted_channels.discard(channel_id)
+        await ctx.send(f"Channel **{ctx.channel.name}** has been removed from the blacklist.")
+    elif action == "list":
+        if not blacklisted_channels:
+            await ctx.send("No channels are currently blacklisted.")
+        else:
+            channel_list = "\n".join([f"<#{ch_id}>" for ch_id in blacklisted_channels])
+            await ctx.send(f"Blacklisted Channels:\n{channel_list}")
+    else:
+        await ctx.send("Invalid action! Use `!blacklist add`, `!blacklist remove`, or `!blacklist list`.")
+
+
+async def send_congratulations_embed(channel):
+    """Sends a congratulations embed when Pokétwo says 'these colors seem unusual..✨'."""
+    embed = discord.Embed(
+        title="Congratulations!",
+        description="You've encountered something extraordinary! 🎉",
+        color=discord.Color.gold()
+    )
+    embed.set_footer(text="Keep up the amazing hunt!")
+    await channel.send(embed=embed)
 
 
 @bot.command(name="ping")
