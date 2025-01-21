@@ -238,6 +238,7 @@ async def help_command(ctx):
         ".toggle_lock_duration": "Toggle between 12-hour and 24-hour lock durations.",
         ".check_timer": "Check the remaining lock time for the channel.",
         ".blacklist": "Manage blacklisted channels.",
+        ".create <channel_name> [category_name]": "Create a new text channel.",
         ".owner": "Displays the bot's creator.",
     }
     for command, description in commands_list.items():
@@ -289,5 +290,27 @@ async def clone_channel(ctx):
     await ctx.send("Channel cloned successfully.")
 
 
+@bot.command(name="create")
+@commands.has_permissions(manage_channels=True)
+async def create_channel(ctx, channel_name: str, *, category_name: str = None):
+    """
+    Create a new text channel.
+    :param ctx: Command context.
+    :param channel_name: Name of the new channel to create.
+    :param category_name: Optional category name to place the new channel in.
+    """
+    category = None
+    if category_name:
+        category = discord.utils.get(ctx.guild.categories, name=category_name)
+        if not category:
+            await ctx.send(f"Category `{category_name}` not found. Creating the channel in the default category.")
+    
+    try:
+        new_channel = await ctx.guild.create_text_channel(name=channel_name, category=category)
+        await ctx.send(f"Channel {new_channel.mention} created successfully in category `{category_name or 'Default'}`.")
+    except Exception as e:
+        logging.error(f"Error creating channel: {e}")
+        await ctx.send("An error occurred while creating the channel. Please ensure I have the necessary permissions.")
+
+
 bot.run(BOT_TOKEN)
-                    
