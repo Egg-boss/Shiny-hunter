@@ -17,7 +17,7 @@ intents.messages = True
 intents.message_content = True
 intents.guilds = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 # Keywords to monitor in messages
 KEYWORDS = ["shiny hunt pings", "collection pings", "rare ping"]
@@ -40,13 +40,12 @@ async def on_ready():
 async def on_message(message):
     """Monitor messages from all bots."""
     if message.author == bot.user:
-        return
+        return  # Ignore the bot's own messages
 
     if message.author.bot:  # Check if the message is from a bot
         if message.channel.id in blacklisted_channels:
-            return  # Ignore blacklisted channels for locking logic
+            return  # Skip if the channel is blacklisted
 
-        # Check for exact keywords in the message content
         if any(keyword in message.content.lower() for keyword in KEYWORDS):
             await lock_channel(message.channel)
             embed = discord.Embed(
@@ -54,34 +53,16 @@ async def on_message(message):
                 description=f"The channel has been locked due to detected bot activity containing the following keywords: {', '.join(KEYWORDS)}.",
                 color=discord.Color.red(),
             )
-            embed.set_footer(text="Use the unlock button or command to restore access.")
-
-            # Unlock button added directly to the lock embed
-            class UnlockView(View):
-                def __init__(self):
-                    super().__init__(timeout=None)
-
-                @discord.ui.button(label="Unlock Channel", style=discord.ButtonStyle.green)
-                async def unlock_button(self, interaction: discord.Interaction, button: Button):
-                    if interaction.user.guild_permissions.manage_channels:
-                        await unlock_channel(message.channel)
-                        await interaction.response.send_message("Channel unlocked!", ephemeral=True)
-                        self.stop()
-                    else:
-                        await interaction.response.send_message(
-                            "You don't have permission to unlock this channel.", ephemeral=True
-                        )
-
-            await message.channel.send(embed=embed, view=UnlockView())
-
-        if "these colors seem unusual..✨" in message.content.lower():
+            embed.set_footer(text="Use the unlock command or button to restore access.")
+            await message.channel.send(embed=embed)
+        elif "these colors seem unusual..✨" in message.content.lower():
             embed = discord.Embed(
-                title="Congratulations!",
-                description="A shiny Pokémon was detected! Celebrate the moment! 🎉",
+                title="🎉 Congratulations! 🎉",
+                description="A shiny Pokémon has been found!",
                 color=discord.Color.gold(),
             )
             await message.channel.send(embed=embed)
-    await bot.process_commands(message)
+    await bot.process_commands(message)  # Ensure commands still work
 
 
 @bot.command(name="lock")
@@ -132,29 +113,34 @@ async def unlock(ctx):
 @bot.command(name="blacklist")
 @commands.has_permissions(manage_channels=True)
 async def blacklist(ctx):
-    """Toggles the blacklist status of a channel."""
+    """Toggles the blacklist status of the current channel."""
     channel_id = ctx.channel.id
     if channel_id in blacklisted_channels:
         blacklisted_channels.remove(channel_id)
-        await ctx.send("This channel has been removed from the blacklist.")
+        await ctx.send(f"Channel {ctx.channel.mention} has been removed from the blacklist.")
     else:
         blacklisted_channels.add(channel_id)
-        await ctx.send("This channel has been added to the blacklist.")
+        await ctx.send(f"Channel {ctx.channel.mention} has been added to the blacklist.")
 
 
 @bot.command(name="blacklist_list")
-@commands.has_permissions(manage_channels=True)
 async def blacklist_list(ctx):
     """Lists all blacklisted channels."""
-    if blacklisted_channels:
-        channels = [f"<#{ch_id}>" for ch_id in blacklisted_channels]
-        await ctx.send("Blacklisted channels:\n" + "\n".join(channels))
-    else:
+    if not blacklisted_channels:
         await ctx.send("No channels are currently blacklisted.")
+        return
+
+    description = "\n".join([f"<#{channel_id}>" for channel_id in blacklisted_channels])
+    embed = discord.Embed(
+        title="Blacklisted Channels",
+        description=description,
+        color=discord.Color.orange(),
+    )
+    await ctx.send(embed=embed)
 
 
 @bot.command(name="help")
-async def help_command(ctx):
+async def custom_help(ctx):
     """Displays a list of available commands."""
     embed = discord.Embed(
         title="Help - Available Commands",
@@ -179,6 +165,7 @@ async def lock_channel(channel):
         print("Pokétwo bot not found in this server.")
         return
 
+    # Set permissions to lock the channel for Pokétwo
     overwrite = channel.overwrites_for(poketwo)
     overwrite.view_channel = False
     overwrite.send_messages = False
@@ -195,6 +182,7 @@ async def unlock_channel(channel):
         print("Pokétwo bot not found in this server.")
         return
 
+    # Restore default permissions for Pokétwo
     await channel.set_permissions(poketwo, overwrite=None)
     print(f"Unlocked channel: {channel.name}")
 
