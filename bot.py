@@ -16,7 +16,8 @@ intents.messages = True
 intents.message_content = True
 intents.guilds = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+# Set command prefix to "."
+bot = commands.Bot(command_prefix=".", intents=intents)
 
 # Remove default help command to override it
 bot.remove_command("help")
@@ -175,15 +176,15 @@ async def custom_help(ctx):
         description="Here are the commands you can use:",
         color=discord.Color.blue(),
     )
-    embed.add_field(name="!lock", value="Manually lock the current channel for Pokétwo.", inline=False)
-    embed.add_field(name="!unlock", value="Manually unlock the current channel for Pokétwo.", inline=False)
-    embed.add_field(name="!delete", value="Delete the current channel.", inline=False)
+    embed.add_field(name=".lock", value="Manually lock the current channel for Pokétwo.", inline=False)
+    embed.add_field(name=".unlock", value="Manually unlock the current channel for Pokétwo.", inline=False)
+    embed.add_field(name=".delete", value="Delete the current channel.", inline=False)
     embed.add_field(name=".move <category>", value="Move the current channel to a different category.", inline=False)
     embed.add_field(name=".create <name> [category]", value="Create a new text channel.", inline=False)
-    embed.add_field(name="!clone [new_name]", value="Clone the current channel with an optional new name.", inline=False)
-    embed.add_field(name="!blacklist", value="Toggle blacklist status for the current channel.", inline=False)
-    embed.add_field(name="!blacklist_list", value="List all blacklisted channels.", inline=False)
-    embed.add_field(name="!help", value="Display this help message.", inline=False)
+    embed.add_field(name=".clone [new_name]", value="Clone the current channel with an optional new name.", inline=False)
+    embed.add_field(name=".blacklist", value="Toggle blacklist status for the current channel.", inline=False)
+    embed.add_field(name=".blacklist_list", value="List all blacklisted channels.", inline=False)
+    embed.add_field(name=".help", value="Display this help message.", inline=False)
     embed.set_footer(text="Bot by Cloud.")
     await ctx.send(embed=embed)
 
@@ -230,4 +231,4 @@ async def unlock_channel(channel):
     await channel.set_permissions(poketwo, overwrite=None)
 
 
-bot.run(BOT_TOKEN)
+bot.run(BOT_TOKEN)     
