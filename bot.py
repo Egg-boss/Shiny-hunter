@@ -110,6 +110,45 @@ async def unlock(ctx):
     await ctx.send(embed=embed)
 
 
+@bot.command(name="delete")
+@commands.has_permissions(manage_channels=True)
+async def delete(ctx):
+    """Deletes the current channel."""
+    channel_name = ctx.channel.name
+    await ctx.channel.delete()
+    print(f"Deleted channel: {channel_name}")
+
+
+@bot.command(name="move")
+@commands.has_permissions(manage_channels=True)
+async def move(ctx, *, category_name: str):
+    """Moves the current channel to a specified category."""
+    category = discord.utils.get(ctx.guild.categories, name=category_name)
+    if not category:
+        await ctx.send(f"Category '{category_name}' not found.")
+        return
+
+    await ctx.channel.edit(category=category)
+    await ctx.send(f"Channel moved to category: {category.name}")
+
+
+@bot.command(name="create")
+@commands.has_permissions(manage_channels=True)
+async def create(ctx, channel_name: str, category_name: str = None):
+    """Creates a new text channel in a specified category."""
+    category = discord.utils.get(ctx.guild.categories, name=category_name) if category_name else None
+    new_channel = await ctx.guild.create_text_channel(name=channel_name, category=category)
+    await ctx.send(f"Channel '{new_channel.name}' created{' in category ' + category.name if category else ''}.")
+
+
+@bot.command(name="cate")
+@commands.has_permissions(manage_channels=True)
+async def cate(ctx, category_name: str):
+    """Creates a new category."""
+    new_category = await ctx.guild.create_category(name=category_name)
+    await ctx.send(f"Category '{new_category.name}' created.")
+
+
 @bot.command(name="blacklist")
 @commands.has_permissions(manage_channels=True)
 async def blacklist(ctx):
@@ -149,6 +188,10 @@ async def custom_help(ctx):
     )
     embed.add_field(name="!lock", value="Manually lock the current channel for Pokétwo.", inline=False)
     embed.add_field(name="!unlock", value="Manually unlock the current channel for Pokétwo.", inline=False)
+    embed.add_field(name="!delete", value="Delete the current channel.", inline=False)
+    embed.add_field(name=".move <category>", value="Move the current channel to a different category.", inline=False)
+    embed.add_field(name=".create <name> [category]", value="Create a new text channel.", inline=False)
+    embed.add_field(name=".cate <name>", value="Create a new category.", inline=False)
     embed.add_field(name="!blacklist", value="Toggle blacklist status for the current channel.", inline=False)
     embed.add_field(name="!blacklist_list", value="List all blacklisted channels.", inline=False)
     embed.add_field(name="!help", value="Display this help message.", inline=False)
