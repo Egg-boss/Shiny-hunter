@@ -50,6 +50,38 @@ async def on_message(message):
             embed.set_footer(text="Keep hunting for more rare PokÃ©mon!")
             await message.channel.send(embed=embed)
 
+    # Keyword detection logic
+    if message.author.bot:
+        # Only detect enabled keywords
+        active_keywords = [k for k, v in KEYWORDS.items() if v]
+        if any(keyword in message.content.lower() for keyword in active_keywords):
+            if message.channel.id not in blacklisted_channels:
+                await lock_channel(message.channel)
+                embed = discord.Embed(
+                    title="Channel Locked",
+                    description="This channel has been locked due to specific keywords being detected.",
+                    color=discord.Color.red(),
+                )
+                embed.set_footer(text="Use the unlock command or button to restore access.")
+                view = UnlockView(channel=message.channel)
+                await message.channel.send(embed=embed, view=view)
+
+    # Process commands after handling custom logic
+    await bot.process_commands(message)
+    if message.author == bot.user:
+        return
+
+    # Check for messages from PokÃ©two and "these colors seem unusual..âœ¨"
+    if message.author.bot and str(message.author) == "PokÃ©two#8236":
+        if "these colors seem unusual..âœ¨" in message.content.lower():
+            embed = discord.Embed(
+                title="ðŸŽ‰ Congratulations! ðŸŽ‰",
+                description=f"{message.author.mention} has found a shiny PokÃ©mon!",
+                color=discord.Color.gold(),
+            )
+            embed.set_footer(text="Keep hunting for more rare PokÃ©mon!")
+            await message.channel.send(embed=embed)
+
     
 # Keywords to monitor and their toggle status
 KEYWORDS = {
@@ -266,4 +298,4 @@ async def unlock_channel(channel):
     await channel.set_permissions(poketwo, overwrite=None)
 
 
-bot.run(BOT_TOKEN)  
+bot.run(BOT_TOKEN)
