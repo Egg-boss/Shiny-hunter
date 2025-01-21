@@ -38,25 +38,30 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    if message.author.bot and message.channel.id not in blacklisted_channels:
-        if any(keyword in message.content.lower() for keyword in KEYWORDS):
-            await lock_channel(message.channel)
-            embed = discord.Embed(
-                title="Channel Locked",
-                description="This channel has been locked due to specific keywords being detected.",
-                color=discord.Color.red(),
-            )
-            embed.set_footer(text="Use the unlock command or button to restore access.")
-            view = UnlockView(channel=message.channel)
-            await message.channel.send(embed=embed, view=view)
-
+    # Check for messages from Pokétwo and "these colors seem unusual..✨"
+    if message.author.bot and str(message.author) == "Pokétwo#8236":
         if "these colors seem unusual..✨" in message.content.lower():
             embed = discord.Embed(
-                title="Congratulations!",
+                title="🎉 Congratulations! 🎉",
                 description=f"{message.author.mention} has found a shiny Pokémon!",
                 color=discord.Color.gold(),
             )
+            embed.set_footer(text="Keep hunting for more rare Pokémon!")
             await message.channel.send(embed=embed)
+
+    # Lock channel logic if specific keywords are detected
+    if message.author.bot:
+        if any(keyword in message.content.lower() for keyword in KEYWORDS):
+            if message.channel.id not in blacklisted_channels:
+                await lock_channel(message.channel)
+                embed = discord.Embed(
+                    title="Channel Locked",
+                    description="This channel has been locked due to specific keywords being detected.",
+                    color=discord.Color.red(),
+                )
+                embed.set_footer(text="Use the unlock command or button to restore access.")
+                view = UnlockView(channel=message.channel)
+                await message.channel.send(embed=embed, view=view)
 
     await bot.process_commands(message)
 
@@ -64,6 +69,10 @@ async def on_message(message):
 @bot.command(name="lock")
 @commands.has_permissions(manage_channels=True)
 async def lock(ctx):
+    if ctx.channel.id in blacklisted_channels:
+        await ctx.send("This channel is blacklisted and cannot be locked.")
+        return
+
     await lock_channel(ctx.channel)
     embed = discord.Embed(
         title="Channel Locked",
