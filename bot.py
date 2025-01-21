@@ -161,7 +161,6 @@ async def check_lock_timers():
 @bot.group(name="blacklist", invoke_without_command=True)
 @commands.has_permissions(manage_channels=True)
 async def blacklist(ctx):
-    """Base command for managing blacklisted channels."""
     embed = discord.Embed(
         title="Blacklist Commands",
         description="Manage the list of blacklisted channels.",
@@ -176,7 +175,6 @@ async def blacklist(ctx):
 @blacklist.command(name="add")
 @commands.has_permissions(manage_channels=True)
 async def blacklist_add(ctx, channel: discord.TextChannel):
-    """Add a channel to the blacklist."""
     if channel.id in blacklisted_channels:
         await ctx.send(f"{channel.mention} is already blacklisted.")
     else:
@@ -187,7 +185,6 @@ async def blacklist_add(ctx, channel: discord.TextChannel):
 @blacklist.command(name="remove")
 @commands.has_permissions(manage_channels=True)
 async def blacklist_remove(ctx, channel: discord.TextChannel):
-    """Remove a channel from the blacklist."""
     if channel.id not in blacklisted_channels:
         await ctx.send(f"{channel.mention} is not in the blacklist.")
     else:
@@ -197,7 +194,6 @@ async def blacklist_remove(ctx, channel: discord.TextChannel):
 
 @blacklist.command(name="list")
 async def blacklist_list(ctx):
-    """List all blacklisted channels."""
     if not blacklisted_channels:
         await ctx.send("No channels are currently blacklisted.")
     else:
