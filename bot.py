@@ -9,7 +9,7 @@ import random
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-POKETWO_ID = 716390085896962058  # Replace this with Pokétwo's actual User ID
+POKETWO_ID = 716390085896962058  # Replace with Pokétwo's actual User ID
 
 # Intents setup
 intents = discord.Intents.default()
@@ -30,8 +30,9 @@ KEYWORDS = {
     "rare ping": True,
 }
 
-# Channel blacklist
+# Channel blacklist and log channel ID
 blacklisted_channels = set()
+log_channel_id = None
 
 
 @bot.event
@@ -57,7 +58,6 @@ async def on_message(message):
 
     # Keyword detection logic
     if message.author.bot:
-        # Only detect enabled keywords
         active_keywords = [k for k, v in KEYWORDS.items() if v]
         if any(keyword in message.content.lower() for keyword in active_keywords):
             if message.channel.id not in blacklisted_channels:
@@ -70,6 +70,7 @@ async def on_message(message):
                 embed.set_footer(text="Use the unlock command or button to restore access.")
                 view = UnlockView(channel=message.channel)
                 await message.channel.send(embed=embed, view=view)
+                await log_event(message.guild, f"🔒 Channel locked: {message.channel.name} due to keyword detection.")
 
     # Process commands after handling custom logic
     await bot.process_commands(message)
@@ -88,125 +89,98 @@ async def help_command(ctx):
     embed.add_field(name=".list_keywords", value="List the statuses of all keywords.", inline=False)
     embed.add_field(name=".lock", value="Manually lock the current channel.", inline=False)
     embed.add_field(name=".unlock", value="Manually unlock the current channel.", inline=False)
-    embed.add_field(name=".del", value="Delete the current channel.", inline=False)
-    embed.add_field(name=".move <category>", value="Move the current channel to a new category.", inline=False)
-    embed.add_field(name=".clone", value="Clone the current channel.", inline=False)
-    embed.add_field(name=".roll NdN", value="Roll dice in NdN format (e.g., `2d6`).", inline=False)
-    embed.add_field(name=".owner", value="Displays the bot's creator.", inline=False)
+    embed.add_field(name=".blacklist <add/remove/list> [channel]", value="Manage blacklisted channels.", inline=False)
+    embed.add_field(name=".log_channel <set/unset>", value="Set or unset the log channel.", inline=False)
+    embed.add_field(name=".joke", value="Sends a random joke.", inline=False)
+    embed.add_field(name=".8ball <question>", value="Ask the magic 8-ball a question.", inline=False)
+    embed.add_field(name=".inspire", value="Sends a motivational quote.", inline=False)
 
     await ctx.send(embed=embed)
 
 
-@bot.command(name="owner")
-async def bot_owner(ctx):
-    """Display the bot creator."""
-    embed = discord.Embed(
-        title="Bot Creator",
-        description="This bot was made by 💨 Suk Ballz",
-        color=discord.Color.purple(),
-    )
-    await ctx.send(embed=embed)
-
-
-@bot.command(name="toggle_keyword")
+@bot.command(name="blacklist")
 @commands.has_permissions(manage_channels=True)
-async def toggle_keyword(ctx, keyword: str):
-    """Toggle detection of a specific keyword."""
-    keyword = keyword.lower()
-    if keyword not in KEYWORDS:
-        await ctx.send(f"The keyword `{keyword}` is not valid. Available keywords: {', '.join(KEYWORDS.keys())}")
-        return
+async def blacklist_command(ctx, action: str, channel: discord.TextChannel = None):
+    """
+    Manage blacklisted channels.
+    Usage:
+      .blacklist add <channel>
+      .blacklist remove <channel>
+      .blacklist list
+    """
+    global blacklisted_channels
 
-    # Toggle the status
-    KEYWORDS[keyword] = not KEYWORDS[keyword]
-    status = "enabled" if KEYWORDS[keyword] else "disabled"
-    await ctx.send(f"Detection for `{keyword}` has been {status}.")
+    if action.lower() == "add" and channel:
+        blacklisted_channels.add(channel.id)
+        await ctx.send(f"Channel `{channel.name}` has been added to the blacklist.")
+        await log_event(ctx.guild, f"🚫 Blacklisted channel added: {channel.name}")
+    elif action.lower() == "remove" and channel:
+        blacklisted_channels.discard(channel.id)
+        await ctx.send(f"Channel `{channel.name}` has been removed from the blacklist.")
+        await log_event(ctx.guild, f"✅ Blacklisted channel removed: {channel.name}")
+    elif action.lower() == "list":
+        if not blacklisted_channels:
+            await ctx.send("No channels are currently blacklisted.")
+        else:
+            channels = [f"<#{ch_id}>" for ch_id in blacklisted_channels]
+            await ctx.send("Blacklisted channels:\n" + "\n".join(channels))
+    else:
+        await ctx.send("Invalid usage. Use `.blacklist <add/remove/list> [channel]`.")
 
 
-@bot.command(name="list_keywords")
+@bot.command(name="log_channel")
 @commands.has_permissions(manage_channels=True)
-async def list_keywords(ctx):
-    """List the status of all keywords."""
-    statuses = [f"`{keyword}`: {'enabled' if status else 'disabled'}" for keyword, status in KEYWORDS.items()]
-    await ctx.send("Keyword detection statuses:\n" + "\n".join(statuses))
+async def set_log_channel(ctx, action: str):
+    """Set or unset the log channel."""
+    global log_channel_id
+
+    if action.lower() == "set":
+        log_channel_id = ctx.channel.id
+        await ctx.send(f"This channel (`{ctx.channel.name}`) is now set as the log channel.")
+    elif action.lower() == "unset":
+        log_channel_id = None
+        await ctx.send("Log channel has been unset.")
+    else:
+        await ctx.send("Invalid usage. Use `.log_channel <set/unset>`.")
 
 
-@bot.command(name="lock")
-@commands.has_permissions(manage_channels=True)
-async def lock(ctx):
-    if ctx.channel.id in blacklisted_channels:
-        await ctx.send("This channel is blacklisted and cannot be locked.")
-        return
-
-    await lock_channel(ctx.channel)
-    embed = discord.Embed(
-        title="Channel Locked",
-        description="The channel has been manually locked for Pokétwo.",
-        color=discord.Color.red(),
-    )
-    embed.set_footer(text="Use the unlock command or button to restore access.")
-    view = UnlockView(channel=ctx.channel)
-    await ctx.send(embed=embed, view=view)
+async def log_event(guild, message):
+    """Logs messages to the log channel if set."""
+    if log_channel_id:
+        log_channel = guild.get_channel(log_channel_id)
+        if log_channel:
+            await log_channel.send(message)
 
 
-@bot.command(name="unlock")
-@commands.has_permissions(manage_channels=True)
-async def unlock(ctx):
-    await unlock_channel(ctx.channel)
-    embed = discord.Embed(
-        title="Channel Unlocked",
-        description="The channel has been unlocked for Pokétwo.",
-        color=discord.Color.green(),
-    )
-    embed.set_footer(text="You can lock the channel again using the lock command.")
-    await ctx.send(embed=embed)
+@bot.command(name="joke")
+async def joke_command(ctx):
+    """Sends a random joke."""
+    jokes = [
+        "Why don’t skeletons fight each other? They don’t have the guts.",
+        "Why did the scarecrow win an award? Because he was outstanding in his field!",
+        "What do you call cheese that isn't yours? Nacho cheese.",
+    ]
+    await ctx.send(random.choice(jokes))
 
 
-@bot.command(name="del")
-@commands.has_permissions(manage_channels=True)
-async def delete_channel(ctx):
-    """Delete the current channel."""
-    await ctx.send(f"Deleting this channel: {ctx.channel.name}")
-    await ctx.channel.delete()
+@bot.command(name="8ball")
+async def eight_ball(ctx, *, question: str):
+    """Answers a question with a random response."""
+    responses = [
+        "Yes.", "No.", "Maybe.", "Ask again later.", "Definitely!", "Not a chance."
+    ]
+    await ctx.send(f"🎱 {random.choice(responses)}")
 
 
-@bot.command(name="move")
-@commands.has_permissions(manage_channels=True)
-async def move_channel(ctx, *, category_name: str):
-    """Move the current channel to a specified category."""
-    category = discord.utils.get(ctx.guild.categories, name=category_name)
-    if not category:
-        await ctx.send(f"Category `{category_name}` not found.")
-        return
-
-    await ctx.channel.edit(category=category)
-    await ctx.send(f"Moved channel to category: `{category_name}`")
-
-
-@bot.command(name="clone")
-@commands.has_permissions(manage_channels=True)
-async def clone_channel(ctx):
-    """Clone the current channel."""
-    cloned_channel = await ctx.channel.clone()
-    await cloned_channel.edit(position=ctx.channel.position + 1)
-    await ctx.send(f"Cloned channel: {cloned_channel.mention}")
-
-
-@bot.command(name="roll")
-async def roll(ctx, dice: str):
-    """Roll dice in NdN format (e.g., 2d6)."""
-    try:
-        rolls, sides = map(int, dice.lower().split('d'))
-    except ValueError:
-        await ctx.send("Invalid dice format! Use `NdN` (e.g., `2d6`).")
-        return
-
-    if rolls <= 0 or sides <= 0:
-        await ctx.send("The number of rolls and sides must be positive integers.")
-        return
-
-    results = [random.randint(1, sides) for _ in range(rolls)]
-    await ctx.send(f"🎲 You rolled: {', '.join(map(str, results))} (Total: {sum(results)})")
+@bot.command(name="inspire")
+async def inspire_command(ctx):
+    """Sends a motivational quote."""
+    quotes = [
+        "Believe you can and you're halfway there. - Theodore Roosevelt",
+        "Don't watch the clock; do what it does. Keep going. - Sam Levenson",
+        "Success is not final, failure is not fatal: It is the courage to continue that counts. - Winston Churchill",
+    ]
+    await ctx.send(random.choice(quotes))
 
 
 class UnlockView(View):
