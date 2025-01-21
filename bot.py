@@ -85,6 +85,8 @@ async def help_command(ctx):
         color=discord.Color.blue(),
     )
     embed.add_field(name=".help", value="Displays this help message.", inline=False)
+    embed.add_field(name=".add_keyword <keyword>", value="Add a new keyword to monitor.", inline=False)
+    embed.add_field(name=".remove_keyword <keyword>", value="Remove an existing keyword.", inline=False)
     embed.add_field(name=".toggle_keyword <keyword>", value="Enable/disable keyword detection.", inline=False)
     embed.add_field(name=".list_keywords", value="List the statuses of all keywords.", inline=False)
     embed.add_field(name=".lock", value="Manually lock the current channel.", inline=False)
@@ -98,52 +100,56 @@ async def help_command(ctx):
     await ctx.send(embed=embed)
 
 
-@bot.command(name="blacklist")
-@commands.has_permissions(manage_channels=True)
-async def blacklist_command(ctx, action: str, channel: discord.TextChannel = None):
-    """
-    Manage blacklisted channels.
-    Usage:
-      .blacklist add <channel>
-      .blacklist remove <channel>
-      .blacklist list
-    """
-    global blacklisted_channels
-
-    if action.lower() == "add" and channel:
-        blacklisted_channels.add(channel.id)
-        await ctx.send(f"Channel `{channel.name}` has been added to the blacklist.")
-        await log_event(ctx.guild, f"🚫 Blacklisted channel added: {channel.name}")
-    elif action.lower() == "remove" and channel:
-        blacklisted_channels.discard(channel.id)
-        await ctx.send(f"Channel `{channel.name}` has been removed from the blacklist.")
-        await log_event(ctx.guild, f"✅ Blacklisted channel removed: {channel.name}")
-    elif action.lower() == "list":
-        if not blacklisted_channels:
-            await ctx.send("No channels are currently blacklisted.")
-        else:
-            channels = [f"<#{ch_id}>" for ch_id in blacklisted_channels]
-            await ctx.send("Blacklisted channels:\n" + "\n".join(channels))
+@bot.command(name="add_keyword")
+async def add_keyword(ctx, *, keyword: str):
+    """Adds a new keyword to the monitoring list."""
+    if keyword in KEYWORDS:
+        await ctx.send(f"The keyword `{keyword}` is already in the list.")
     else:
-        await ctx.send("Invalid usage. Use `.blacklist <add/remove/list> [channel]`.")
+        KEYWORDS[keyword] = True
+        await ctx.send(f"The keyword `{keyword}` has been added and is now active.")
 
 
-@bot.command(name="log_channel")
-@commands.has_permissions(manage_channels=True)
-async def set_log_channel(ctx, action: str):
-    """Set or unset the log channel."""
-    global log_channel_id
-
-    if action.lower() == "set":
-        log_channel_id = ctx.channel.id
-        await ctx.send(f"This channel (`{ctx.channel.name}`) is now set as the log channel.")
-    elif action.lower() == "unset":
-        log_channel_id = None
-        await ctx.send("Log channel has been unset.")
+@bot.command(name="remove_keyword")
+async def remove_keyword(ctx, *, keyword: str):
+    """Removes a keyword from the monitoring list."""
+    if keyword in KEYWORDS:
+        del KEYWORDS[keyword]
+        await ctx.send(f"The keyword `{keyword}` has been removed from the list.")
     else:
-        await ctx.send("Invalid usage. Use `.log_channel <set/unset>`.")
+        await ctx.send(f"The keyword `{keyword}` was not found in the list.")
 
 
+@bot.command(name="lock")
+@commands.has_permissions(manage_channels=True)
+async def lock_command(ctx):
+    """Manually locks the current channel."""
+    await lock_channel(ctx.channel)
+    await ctx.send(f"🔒 The channel `{ctx.channel.name}` has been locked.")
+
+
+@bot.command(name="unlock")
+@commands.has_permissions(manage_channels=True)
+async def unlock_command(ctx):
+    """Manually unlocks the current channel."""
+    await unlock_channel(ctx.channel)
+    await ctx.send(f"🔓 The channel `{ctx.channel.name}` has been unlocked.")
+
+
+# Lock/Unlock Helpers
+async def lock_channel(channel):
+    overwrite = channel.overwrites_for(channel.guild.default_role)
+    overwrite.send_messages = False
+    await channel.set_permissions(channel.guild.default_role, overwrite=overwrite)
+
+
+async def unlock_channel(channel):
+    overwrite = channel.overwrites_for(channel.guild.default_role)
+    overwrite.send_messages = None
+    await channel.set_permissions(channel.guild.default_role, overwrite=overwrite)
+
+
+# Logging
 async def log_event(guild, message):
     """Logs messages to the log channel if set."""
     if log_channel_id:
@@ -152,77 +158,5 @@ async def log_event(guild, message):
             await log_channel.send(message)
 
 
-@bot.command(name="joke")
-async def joke_command(ctx):
-    """Sends a random joke."""
-    jokes = [
-        "Why don’t skeletons fight each other? They don’t have the guts.",
-        "Why did the scarecrow win an award? Because he was outstanding in his field!",
-        "What do you call cheese that isn't yours? Nacho cheese.",
-    ]
-    await ctx.send(random.choice(jokes))
-
-
-@bot.command(name="8ball")
-async def eight_ball(ctx, *, question: str):
-    """Answers a question with a random response."""
-    responses = [
-        "Yes.", "No.", "Maybe.", "Ask again later.", "Definitely!", "Not a chance."
-    ]
-    await ctx.send(f"🎱 {random.choice(responses)}")
-
-
-@bot.command(name="inspire")
-async def inspire_command(ctx):
-    """Sends a motivational quote."""
-    quotes = [
-        "Believe you can and you're halfway there. - Theodore Roosevelt",
-        "Don't watch the clock; do what it does. Keep going. - Sam Levenson",
-        "Success is not final, failure is not fatal: It is the courage to continue that counts. - Winston Churchill",
-    ]
-    await ctx.send(random.choice(quotes))
-
-
-class UnlockView(View):
-    def __init__(self, channel):
-        super().__init__(timeout=None)
-        self.channel = channel
-
-    @discord.ui.button(label="Unlock Channel", style=discord.ButtonStyle.green)
-    async def unlock_button(self, interaction: discord.Interaction, button: Button):
-        if interaction.user.guild_permissions.manage_channels:
-            await unlock_channel(self.channel)
-            await interaction.response.send_message("Channel unlocked!", ephemeral=True)
-            self.stop()
-        else:
-            await interaction.response.send_message(
-                "You don't have permission to unlock this channel.", ephemeral=True
-            )
-
-
-async def lock_channel(channel):
-    guild = channel.guild
-    try:
-        poketwo = await guild.fetch_member(POKETWO_ID)
-    except discord.NotFound:
-        print("Pokétwo bot not found in this server.")
-        return
-
-    overwrite = channel.overwrites_for(poketwo)
-    overwrite.view_channel = False
-    overwrite.send_messages = False
-    await channel.set_permissions(poketwo, overwrite=overwrite)
-
-
-async def unlock_channel(channel):
-    guild = channel.guild
-    try:
-        poketwo = await guild.fetch_member(POKETWO_ID)
-    except discord.NotFound:
-        print("Pokétwo bot not found in this server.")
-        return
-
-    await channel.set_permissions(poketwo, overwrite=None)
-
-
 bot.run(BOT_TOKEN)
+    
