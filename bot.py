@@ -75,6 +75,39 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
+@bot.command(name="help")
+async def help_command(ctx):
+    """Custom help command to display all available commands."""
+    embed = discord.Embed(
+        title="Bot Commands",
+        description="Here are the available commands:",
+        color=discord.Color.blue(),
+    )
+    embed.add_field(name=".help", value="Displays this help message.", inline=False)
+    embed.add_field(name=".toggle_keyword <keyword>", value="Enable/disable keyword detection.", inline=False)
+    embed.add_field(name=".list_keywords", value="List the statuses of all keywords.", inline=False)
+    embed.add_field(name=".lock", value="Manually lock the current channel.", inline=False)
+    embed.add_field(name=".unlock", value="Manually unlock the current channel.", inline=False)
+    embed.add_field(name=".del", value="Delete the current channel.", inline=False)
+    embed.add_field(name=".move <category>", value="Move the current channel to a new category.", inline=False)
+    embed.add_field(name=".clone", value="Clone the current channel.", inline=False)
+    embed.add_field(name=".roll NdN", value="Roll dice in NdN format (e.g., `2d6`).", inline=False)
+    embed.add_field(name=".owner", value="Displays the bot's creator.", inline=False)
+
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="owner")
+async def bot_owner(ctx):
+    """Display the bot creator."""
+    embed = discord.Embed(
+        title="Bot Creator",
+        description="This bot was made by 💨 Suk Ballz",
+        color=discord.Color.purple(),
+    )
+    await ctx.send(embed=embed)
+
+
 @bot.command(name="toggle_keyword")
 @commands.has_permissions(manage_channels=True)
 async def toggle_keyword(ctx, keyword: str):
