@@ -4,10 +4,16 @@ from discord.ui import Button, View
 import os
 from dotenv import load_dotenv
 import random
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Load environment variables
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN is not set in the environment variables.")
 
 POKETWO_ID = 716390085896962058  # Replace this with Pokétwo's actual User ID
 
@@ -41,22 +47,22 @@ class UnlockView(View):
 
     @discord.ui.button(label="Unlock Channel", style=discord.ButtonStyle.green)
     async def unlock_button(self, interaction: discord.Interaction, button: Button):
-        # Check if the user has the "unlock" role or manage_channels permission
+        # Check if the user has the "unlock" role
         unlock_role = discord.utils.get(interaction.guild.roles, name="unlock")
-        if unlock_role in interaction.user.roles or interaction.user.guild_permissions.manage_channels:
-            await unlock_channel(self.channel)
+        if unlock_role in interaction.user.roles:
+            await set_channel_permissions(self.channel, view_channel=None, send_messages=None)
             await interaction.response.send_message("Channel unlocked!", ephemeral=True)
             self.stop()
         else:
             await interaction.response.send_message(
-                "You don't have permission or the 'unlock' role to unlock this channel.",
+                "You don't have the 'unlock' role to unlock this channel.",
                 ephemeral=True,
             )
 
 
 @bot.event
 async def on_ready():
-    print(f"Bot is online as {bot.user}")
+    logging.info(f"Bot is online as {bot.user}")
 
 
 @bot.event
@@ -81,7 +87,7 @@ async def on_message(message):
             active_keywords = [k for k, v in KEYWORDS.items() if v]
             if any(keyword in message.content.lower() for keyword in active_keywords):
                 if message.channel.id not in blacklisted_channels:
-                    await lock_channel(message.channel)
+                    await set_channel_permissions(message.channel, view_channel=False, send_messages=False)
                     embed = discord.Embed(
                         title="Channel Locked",
                         description="This channel has been locked due to specific keywords being detected.",
@@ -94,7 +100,7 @@ async def on_message(message):
         # Process commands after handling custom logic
         await bot.process_commands(message)
     except Exception as e:
-        print(f"Error in on_message: {e}")
+        logging.error(f"Error in on_message: {e}")
 
 
 @bot.command(name="help")
@@ -105,16 +111,20 @@ async def help_command(ctx):
         description="Here are the available commands:",
         color=discord.Color.blue(),
     )
-    embed.add_field(name=".help", value="Displays this help message.", inline=False)
-    embed.add_field(name=".toggle_keyword <keyword>", value="Enable/disable keyword detection.", inline=False)
-    embed.add_field(name=".list_keywords", value="List the statuses of all keywords.", inline=False)
-    embed.add_field(name=".lock", value="Manually lock the current channel.", inline=False)
-    embed.add_field(name=".unlock", value="Manually unlock the current channel.", inline=False)
-    embed.add_field(name=".del", value="Delete the current channel.", inline=False)
-    embed.add_field(name=".move <category>", value="Move the current channel to a new category.", inline=False)
-    embed.add_field(name=".clone", value="Clone the current channel.", inline=False)
-    embed.add_field(name=".roll NdN", value="Roll dice in NdN format (e.g., `2d6`).", inline=False)
-    embed.add_field(name=".owner", value="Displays the bot's creator.", inline=False)
+    commands_list = {
+        ".help": "Displays this help message.",
+        ".toggle_keyword <keyword>": "Enable/disable keyword detection.",
+        ".list_keywords": "List the statuses of all keywords.",
+        ".lock": "Manually lock the current channel.",
+        ".unlock": "Manually unlock the current channel.",
+        ".del": "Delete the current channel.",
+        ".move <category>": "Move the current channel to a new category.",
+        ".clone": "Clone the current channel.",
+        ".roll NdN": "Roll dice in NdN format (e.g., `2d6`).",
+        ".owner": "Displays the bot's creator.",
+    }
+    for command, description in commands_list.items():
+        embed.add_field(name=command, value=description, inline=False)
 
     await ctx.send(embed=embed)
 
@@ -160,7 +170,7 @@ async def lock(ctx):
         await ctx.send("This channel is blacklisted and cannot be locked.")
         return
 
-    await lock_channel(ctx.channel)
+    await set_channel_permissions(ctx.channel, view_channel=False, send_messages=False)
     embed = discord.Embed(
         title="Channel Locked",
         description="The channel has been manually locked for Pokétwo.",
@@ -174,7 +184,7 @@ async def lock(ctx):
 @bot.command(name="unlock")
 @commands.has_permissions(manage_channels=True)
 async def unlock(ctx):
-    await unlock_channel(ctx.channel)
+    await set_channel_permissions(ctx.channel, view_channel=None, send_messages=None)
     embed = discord.Embed(
         title="Channel Unlocked",
         description="The channel has been unlocked for Pokétwo.",
@@ -184,76 +194,21 @@ async def unlock(ctx):
     await ctx.send(embed=embed)
 
 
-@bot.command(name="del")
-@commands.has_permissions(manage_channels=True)
-async def delete_channel(ctx):
-    """Delete the current channel."""
-    await ctx.send(f"Deleting this channel: {ctx.channel.name}")
-    await ctx.channel.delete()
-
-
-@bot.command(name="move")
-@commands.has_permissions(manage_channels=True)
-async def move_channel(ctx, *, category_name: str):
-    """Move the current channel to a specified category."""
-    category = discord.utils.get(ctx.guild.categories, name=category_name)
-    if not category:
-        await ctx.send(f"Category `{category_name}` not found.")
-        return
-
-    await ctx.channel.edit(category=category)
-    await ctx.send(f"Moved channel to category: `{category_name}`")
-
-
-@bot.command(name="clone")
-@commands.has_permissions(manage_channels=True)
-async def clone_channel(ctx):
-    """Clone the current channel."""
-    cloned_channel = await ctx.channel.clone()
-    await cloned_channel.edit(position=ctx.channel.position + 1)
-    await ctx.send(f"Cloned channel: {cloned_channel.mention}")
-
-
-@bot.command(name="roll")
-async def roll(ctx, dice: str):
-    """Roll dice in NdN format (e.g., 2d6)."""
-    try:
-        rolls, sides = map(int, dice.lower().split('d'))
-    except ValueError:
-        await ctx.send("Invalid dice format! Use `NdN` (e.g., `2d6`).")
-        return
-
-    if rolls <= 0 or sides <= 0:
-        await ctx.send("The number of rolls and sides must be positive integers.")
-        return
-
-    results = [random.randint(1, sides) for _ in range(rolls)]
-    await ctx.send(f"🎲 You rolled: {', '.join(map(str, results))} (Total: {sum(results)})")
-
-
-async def lock_channel(channel):
+async def set_channel_permissions(channel, view_channel=None, send_messages=None):
+    """Set channel permissions for Pokétwo bot."""
     guild = channel.guild
     try:
         poketwo = await guild.fetch_member(POKETWO_ID)
     except discord.NotFound:
-        print("Pokétwo bot not found in this server.")
+        logging.warning("Pokétwo bot not found in this server.")
         return
 
     overwrite = channel.overwrites_for(poketwo)
-    overwrite.view_channel = False
-    overwrite.send_messages = False
+    if view_channel is not None:
+        overwrite.view_channel = view_channel
+    if send_messages is not None:
+        overwrite.send_messages = send_messages
     await channel.set_permissions(poketwo, overwrite=overwrite)
-
-
-async def unlock_channel(channel):
-    guild = channel.guild
-    try:
-        poketwo = await guild.fetch_member(POKETWO_ID)
-    except discord.NotFound:
-        print("Pokétwo bot not found in this server.")
-        return
-
-    await channel.set_permissions(poketwo, overwrite=None)
 
 
 bot.run(BOT_TOKEN)
