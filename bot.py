@@ -18,6 +18,9 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# Remove default help command to override it
+bot.remove_command("help")
+
 # Keywords to monitor
 KEYWORDS = ["shiny hunt pings", "collection pings", "rare ping"]
 
