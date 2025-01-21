@@ -218,13 +218,16 @@ class UnlockView(View):
 
     @discord.ui.button(label="Unlock Channel", style=discord.ButtonStyle.green)
     async def unlock_button(self, interaction: discord.Interaction, button: Button):
-        if interaction.user.guild_permissions.manage_channels:
+        # Check if the user has the "unlock" role or manage_channels permission
+        unlock_role = discord.utils.get(interaction.guild.roles, name="unlock")
+        if unlock_role in interaction.user.roles or interaction.user.guild_permissions.manage_channels:
             await unlock_channel(self.channel)
             await interaction.response.send_message("Channel unlocked!", ephemeral=True)
             self.stop()
         else:
             await interaction.response.send_message(
-                "You don't have permission to unlock this channel.", ephemeral=True
+                "You don't have permission or the 'unlock' role to unlock this channel.",
+                ephemeral=True,
             )
 
 
@@ -254,3 +257,4 @@ async def unlock_channel(channel):
 
 
 bot.run(BOT_TOKEN)
+    
