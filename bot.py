@@ -29,6 +29,9 @@ bot = commands.Bot(command_prefix=".", intents=intents)
 # Remove default help command to override it
 bot.remove_command("help")
 
+# Lock duration settings
+lock_duration = 12  # Default lock duration in hours
+
 # Keywords to monitor and their toggle status
 KEYWORDS = {
     "shiny hunt pings": True,
@@ -38,8 +41,9 @@ KEYWORDS = {
 
 # Channel blacklist
 blacklisted_channels = set()
-temp_locks = {}  # Track temporary locks with expiration times
-lock_duration = timedelta(hours=12)  # Default lock duration (can toggle between 12 and 24 hours)
+
+# Lock countdown tasks
+lock_timers = {}
 
 
 class UnlockView(View):
@@ -56,7 +60,7 @@ class UnlockView(View):
             self.stop()
         else:
             await interaction.response.send_message(
-                "You don't have the 'unlock' role to unlock this channel.",
+                "You don't have the 'unlock' role to unlock this channel. Use `.unlock` instead.",
                 ephemeral=True,
             )
 
@@ -64,7 +68,6 @@ class UnlockView(View):
 @bot.event
 async def on_ready():
     logging.info(f"Bot is online as {bot.user}")
-    check_temp_locks.start()
 
 
 @bot.event
@@ -87,111 +90,37 @@ async def on_message(message):
             active_keywords = [k for k, v in KEYWORDS.items() if v]
             if any(keyword in message.content.lower() for keyword in active_keywords):
                 if message.channel.id not in blacklisted_channels:
-                    unlock_time = datetime.utcnow() + lock_duration
-                    temp_locks[message.channel.id] = unlock_time
-                    await lock_channel(message.channel, unlock_time)
+                    await lock_channel(message.channel)
+                    embed = discord.Embed(
+                        title="Channel Locked",
+                        description=(
+                            f"This channel has been locked for {lock_duration} hours due to specific keywords being detected."
+                        ),
+                        color=discord.Color.red(),
+                    )
+                    embed.set_footer(text="Use the unlock button or `.unlock` to restore access.")
+                    view = UnlockView(channel=message.channel)
+                    await message.channel.send(embed=embed, view=view)
 
         await bot.process_commands(message)
     except Exception as e:
         logging.error(f"Error in on_message: {e}")
 
 
-@bot.command(name="toggle_lock_duration")
-@commands.has_permissions(manage_channels=True)
-async def toggle_lock_duration(ctx):
-    global lock_duration
-    if lock_duration == timedelta(hours=12):
-        lock_duration = timedelta(hours=24)
-        await ctx.send("Lock duration has been set to 24 hours.")
-    else:
-        lock_duration = timedelta(hours=12)
-        await ctx.send("Lock duration has been set to 12 hours.")
-
-
-@tasks.loop(minutes=1)
-async def check_temp_locks():
-    now = datetime.utcnow()
-    for channel_id, unlock_time in list(temp_locks.items()):
-        if now >= unlock_time:
-            temp_locks.pop(channel_id)
-            channel = bot.get_channel(channel_id)
-            if channel:
-                await unlock_channel(channel, bot.user)
-
-
-@bot.command(name="unlock")
-async def unlock(ctx):
-    unlock_role = discord.utils.get(ctx.guild.roles, name="unlock")
-
-    if unlock_role in ctx.author.roles or ctx.author.guild_permissions.manage_channels:
-        await unlock_channel(ctx.channel, ctx.author)
-    else:
-        await ctx.send(
-            "You don't have the required permissions or the 'unlock' role to unlock this channel."
-        )
-
-
-@bot.command(name="del")
-@commands.has_permissions(manage_channels=True)
-async def delete_channel(ctx):
-    await ctx.channel.delete()
-
-
-@bot.command(name="move")
-@commands.has_permissions(manage_channels=True)
-async def move_channel(ctx, *, category_name: str):
-    category = discord.utils.get(ctx.guild.categories, name=category_name)
-    if category:
-        await ctx.channel.edit(category=category)
-        await ctx.send(f"Channel moved to category: {category.name}")
-    else:
-        await ctx.send(f"Category '{category_name}' not found.")
-
-
-@bot.command(name="clone")
-@commands.has_permissions(manage_channels=True)
-async def clone_channel(ctx):
-    cloned_channel = await ctx.channel.clone()
-    await ctx.send(f"Channel cloned successfully. New channel: {cloned_channel.mention}")
-
-
-@bot.command(name="owner")
-async def bot_owner(ctx):
-    embed = discord.Embed(
-        title="Bot Creator",
-        description="This bot was made by 💨 Suk Ballz",
-        color=discord.Color.purple(),
-    )
-    await ctx.send(embed=embed)
-
-
-async def lock_channel(channel, unlock_time):
+async def lock_channel(channel):
     await set_channel_permissions(channel, view_channel=False, send_messages=False)
-    time_remaining = (unlock_time - datetime.utcnow()).total_seconds()
-    hours, remainder = divmod(time_remaining, 3600)
-    minutes, _ = divmod(remainder, 60)
-
-    embed = discord.Embed(
-        title="Channel Locked",
-        description=(
-            f"This channel has been locked due to specific keywords being detected.\n"
-            f"The channel will automatically unlock in {int(hours)} hours and {int(minutes)} minutes."
-        ),
-        color=discord.Color.red(),
-    )
-    embed.set_footer(text="Use the unlock command or button to restore access. If the button fails, use `.unlock`.")
-    view = UnlockView(channel=channel)
-    await channel.send(embed=embed, view=view)
+    end_time = datetime.now() + timedelta(hours=lock_duration)
+    lock_timers[channel.id] = end_time
 
 
 async def unlock_channel(channel, user):
     await set_channel_permissions(channel, view_channel=None, send_messages=None)
+    lock_timers.pop(channel.id, None)
     embed = discord.Embed(
         title="Channel Unlocked",
-        description=f"Happy hunting, {user.mention}! Let's see some unusual colors... ✨",
+        description=f"The channel has been unlocked by {user.mention}. Happy hunting, let's see some unusual colors... ✨",
         color=discord.Color.green(),
     )
-    embed.set_footer(text="You can lock the channel again using the lock command.")
     await channel.send(embed=embed)
 
 
@@ -204,19 +133,78 @@ async def set_channel_permissions(channel, view_channel=None, send_messages=None
         return
 
     overwrite = channel.overwrites_for(poketwo)
-
-    if view_channel is not None:
-        overwrite.view_channel = view_channel
-    else:
-        overwrite.view_channel = True
-
-    if send_messages is not None:
-        overwrite.send_messages = send_messages
-    else:
-        overwrite.send_messages = True
-
+    overwrite.view_channel = view_channel if view_channel is not None else True
+    overwrite.send_messages = send_messages if send_messages is not None else True
     await channel.set_permissions(poketwo, overwrite=overwrite)
 
 
+@bot.command(name="help")
+async def help_command(ctx):
+    embed = discord.Embed(
+        title="Bot Commands",
+        description="Here are the available commands:",
+        color=discord.Color.blue(),
+    )
+    commands_list = {
+        ".help": "Displays this help message.",
+        ".toggle_keyword <keyword>": "Enable/disable keyword detection.",
+        ".list_keywords": "List the statuses of all keywords.",
+        ".lock": "Manually lock the current channel.",
+        ".unlock": "Manually unlock the current channel.",
+        ".del": "Delete the current channel.",
+        ".move <category>": "Move the current channel to a new category.",
+        ".clone": "Clone the current channel.",
+        ".toggle_lock_duration": "Toggle between 12-hour and 24-hour lock durations.",
+        ".owner": "Displays the bot's creator.",
+    }
+    for command, description in commands_list.items():
+        embed.add_field(name=command, value=description, inline=False)
+
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="toggle_lock_duration")
+@commands.has_permissions(manage_channels=True)
+async def toggle_lock_duration(ctx):
+    global lock_duration
+    lock_duration = 24 if lock_duration == 12 else 12
+    await ctx.send(f"Lock duration toggled to {lock_duration} hours.")
+
+
+@bot.command(name="owner")
+async def bot_owner(ctx):
+    embed = discord.Embed(
+        title="Bot Creator",
+        description="This bot was made by 💨 Suk Ballz",
+        color=discord.Color.purple(),
+    )
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="del")
+@commands.has_permissions(manage_channels=True)
+async def delete_channel(ctx):
+    await ctx.channel.delete()
+
+
+@bot.command(name="move")
+@commands.has_permissions(manage_channels=True)
+async def move_channel(ctx, *, category_name: str):
+    category = discord.utils.get(ctx.guild.categories, name=category_name)
+    if not category:
+        await ctx.send(f"Category `{category_name}` not found.")
+        return
+    await ctx.channel.edit(category=category)
+    await ctx.send(f"Channel moved to `{category_name}`.")
+
+
+@bot.command(name="clone")
+@commands.has_permissions(manage_channels=True)
+async def clone_channel(ctx):
+    cloned_channel = await ctx.channel.clone()
+    await cloned_channel.edit(position=ctx.channel.position + 1)
+    await ctx.send("Channel cloned successfully.")
+
+
 bot.run(BOT_TOKEN)
-                          
+    
