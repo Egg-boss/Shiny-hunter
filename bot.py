@@ -34,6 +34,26 @@ KEYWORDS = {
 blacklisted_channels = set()
 
 
+class UnlockView(View):
+    def __init__(self, channel):
+        super().__init__(timeout=None)
+        self.channel = channel
+
+    @discord.ui.button(label="Unlock Channel", style=discord.ButtonStyle.green)
+    async def unlock_button(self, interaction: discord.Interaction, button: Button):
+        # Check if the user has the "unlock" role or manage_channels permission
+        unlock_role = discord.utils.get(interaction.guild.roles, name="unlock")
+        if unlock_role in interaction.user.roles or interaction.user.guild_permissions.manage_channels:
+            await unlock_channel(self.channel)
+            await interaction.response.send_message("Channel unlocked!", ephemeral=True)
+            self.stop()
+        else:
+            await interaction.response.send_message(
+                "You don't have permission or the 'unlock' role to unlock this channel.",
+                ephemeral=True,
+            )
+
+
 @bot.event
 async def on_ready():
     print(f"Bot is online as {bot.user}")
@@ -209,26 +229,6 @@ async def roll(ctx, dice: str):
 
     results = [random.randint(1, sides) for _ in range(rolls)]
     await ctx.send(f"🎲 You rolled: {', '.join(map(str, results))} (Total: {sum(results)})")
-
-
-class UnlockView(View):
-    def __init__(self, channel):
-        super().__init__(timeout=None)
-        self.channel = channel
-
-    @discord.ui.button(label="Unlock Channel", style=discord.ButtonStyle.green)
-    async def unlock_button(self, interaction: discord.Interaction, button: Button):
-        # Check if the user has the "unlock" role or manage_channels permission
-        unlock_role = discord.utils.get(interaction.guild.roles, name="unlock")
-        if unlock_role in interaction.user.roles or interaction.user.guild_permissions.manage_channels:
-            await unlock_channel(self.channel)
-            await interaction.response.send_message("Channel unlocked!", ephemeral=True)
-            self.stop()
-        else:
-            await interaction.response.send_message(
-                "You don't have permission or the 'unlock' role to unlock this channel.",
-                ephemeral=True,
-            )
 
 
 async def lock_channel(channel):
