@@ -68,6 +68,8 @@ class UnlockView(View):
 @bot.event
 async def on_ready():
     logging.info(f"Bot is online as {bot.user}")
+    if not check_lock_timers.is_running():
+        check_lock_timers.start()
 
 
 @bot.event
@@ -92,12 +94,14 @@ async def on_message(message):
                 if message.channel.id not in blacklisted_channels:
                     await lock_channel(message.channel)
                     embed = discord.Embed(
-                        title="Channel Locked",
+                        title="🔒 Channel Locked",
                         description=(
                             f"This channel has been locked for {lock_duration} hours due to specific keywords being detected."
                         ),
                         color=discord.Color.red(),
+                        timestamp=datetime.now(),
                     )
+                    embed.add_field(name="Lock Timer Ends At", value=(datetime.now() + timedelta(hours=lock_duration)).strftime("%Y-%m-%d %H:%M:%S"), inline=False)
                     embed.set_footer(text="Use the unlock button or `.unlock` to restore access.")
                     view = UnlockView(channel=message.channel)
                     await message.channel.send(embed=embed, view=view)
@@ -117,10 +121,12 @@ async def unlock_channel(channel, user):
     await set_channel_permissions(channel, view_channel=None, send_messages=None)
     lock_timers.pop(channel.id, None)
     embed = discord.Embed(
-        title="Channel Unlocked",
-        description=f"The channel has been unlocked by {user.mention}. Happy hunting, let's see some unusual colors... ✨",
+        title="🔓 Channel Unlocked",
+        description=f"The channel has been unlocked by {user.mention} (or automatically after the timer expired).",
         color=discord.Color.green(),
+        timestamp=datetime.now(),
     )
+    embed.set_footer(text="Happy hunting! Let's see some unusual colors... ✨")
     await channel.send(embed=embed)
 
 
@@ -136,6 +142,85 @@ async def set_channel_permissions(channel, view_channel=None, send_messages=None
     overwrite.view_channel = view_channel if view_channel is not None else True
     overwrite.send_messages = send_messages if send_messages is not None else True
     await channel.set_permissions(poketwo, overwrite=overwrite)
+
+
+@tasks.loop(seconds=60)
+async def check_lock_timers():
+    now = datetime.now()
+    expired_channels = [channel_id for channel_id, end_time in lock_timers.items() if now >= end_time]
+
+    for channel_id in expired_channels:
+        channel = bot.get_channel(channel_id)
+        if channel:
+            await unlock_channel(channel, bot.user)
+            logging.info(f"Channel {channel.name} automatically unlocked.")
+        lock_timers.pop(channel_id, None)
+
+
+# Blacklist Commands
+@bot.group(name="blacklist", invoke_without_command=True)
+@commands.has_permissions(manage_channels=True)
+async def blacklist(ctx):
+    """Base command for managing blacklisted channels."""
+    embed = discord.Embed(
+        title="Blacklist Commands",
+        description="Manage the list of blacklisted channels.",
+        color=discord.Color.blue(),
+    )
+    embed.add_field(name=".blacklist add <channel>", value="Add a channel to the blacklist.", inline=False)
+    embed.add_field(name=".blacklist remove <channel>", value="Remove a channel from the blacklist.", inline=False)
+    embed.add_field(name=".blacklist list", value="List all blacklisted channels.", inline=False)
+    await ctx.send(embed=embed)
+
+
+@blacklist.command(name="add")
+@commands.has_permissions(manage_channels=True)
+async def blacklist_add(ctx, channel: discord.TextChannel):
+    """Add a channel to the blacklist."""
+    if channel.id in blacklisted_channels:
+        await ctx.send(f"{channel.mention} is already blacklisted.")
+    else:
+        blacklisted_channels.add(channel.id)
+        await ctx.send(f"{channel.mention} has been added to the blacklist.")
+
+
+@blacklist.command(name="remove")
+@commands.has_permissions(manage_channels=True)
+async def blacklist_remove(ctx, channel: discord.TextChannel):
+    """Remove a channel from the blacklist."""
+    if channel.id not in blacklisted_channels:
+        await ctx.send(f"{channel.mention} is not in the blacklist.")
+    else:
+        blacklisted_channels.remove(channel.id)
+        await ctx.send(f"{channel.mention} has been removed from the blacklist.")
+
+
+@blacklist.command(name="list")
+async def blacklist_list(ctx):
+    """List all blacklisted channels."""
+    if not blacklisted_channels:
+        await ctx.send("No channels are currently blacklisted.")
+    else:
+        channels = [bot.get_channel(cid).mention for cid in blacklisted_channels if bot.get_channel(cid)]
+        channel_list = "\n".join(channels)
+        embed = discord.Embed(
+            title="Blacklisted Channels",
+            description=channel_list,
+            color=discord.Color.red(),
+        )
+        await ctx.send(embed=embed)
+
+
+@bot.command(name="check_timer")
+async def check_timer(ctx):
+    channel_id = ctx.channel.id
+    if channel_id in lock_timers:
+        remaining_time = lock_timers[channel_id] - datetime.now()
+        hours, remainder = divmod(int(remaining_time.total_seconds()), 3600)
+        minutes, _ = divmod(remainder, 60)
+        await ctx.send(f"Channel will unlock in {hours} hours and {minutes} minutes.")
+    else:
+        await ctx.send("This channel is not locked.")
 
 
 @bot.command(name="help")
@@ -155,6 +240,8 @@ async def help_command(ctx):
         ".move <category>": "Move the current channel to a new category.",
         ".clone": "Clone the current channel.",
         ".toggle_lock_duration": "Toggle between 12-hour and 24-hour lock durations.",
+        ".check_timer": "Check the remaining lock time for the channel.",
+        ".blacklist": "Manage blacklisted channels.",
         ".owner": "Displays the bot's creator.",
     }
     for command, description in commands_list.items():
@@ -207,4 +294,4 @@ async def clone_channel(ctx):
 
 
 bot.run(BOT_TOKEN)
-    
+                    
