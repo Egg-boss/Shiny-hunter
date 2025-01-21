@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-POKETWO_ID = 716390085896962058  # Replace this with Pokétwo's actual User ID
+POKETWO_ID = 716390085896962058  # Replace this with PokÃ©two's actual User ID
 
 # Intents setup
 intents = discord.Intents.default()
@@ -39,20 +39,55 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # Check for messages from Pokétwo and "these colors seem unusual..✨"
-    if message.author.bot and str(message.author) == "Pokétwo#8236":
-        if "these colors seem unusual..✨" in message.content.lower():
+    # Check for messages from PokÃ©two and "these colors seem unusual..âœ¨"
+    if message.author.bot and str(message.author) == "PokÃ©two#8236":
+        if "these colors seem unusual..âœ¨" in message.content.lower():
             embed = discord.Embed(
-                title="🎉 Congratulations! 🎉",
-                description=f"{message.author.mention} has found a shiny Pokémon!",
+                title="ðŸŽ‰ Congratulations! ðŸŽ‰",
+                description=f"{message.author.mention} has found a shiny PokÃ©mon!",
                 color=discord.Color.gold(),
             )
-            embed.set_footer(text="Keep hunting for more rare Pokémon!")
+            embed.set_footer(text="Keep hunting for more rare PokÃ©mon!")
             await message.channel.send(embed=embed)
 
-    # Lock channel logic if specific keywords are detected
+    
+# Keywords to monitor and their toggle status
+KEYWORDS = {
+    "shiny hunt pings": True,
+    "collection pings": True,
+    "rare ping": True,
+}
+
+
+@bot.command(name="toggle_keyword")
+@commands.has_permissions(manage_channels=True)
+async def toggle_keyword(ctx, keyword: str):
+    """Toggle detection of a specific keyword."""
+    keyword = keyword.lower()
+    if keyword not in KEYWORDS:
+        await ctx.send(f"The keyword `{keyword}` is not valid. Available keywords: {', '.join(KEYWORDS.keys())}")
+        return
+
+    # Toggle the status
+    KEYWORDS[keyword] = not KEYWORDS[keyword]
+    status = "enabled" if KEYWORDS[keyword] else "disabled"
+    await ctx.send(f"Detection for `{keyword}` has been {status}.")
+
+
+@bot.command(name="list_keywords")
+@commands.has_permissions(manage_channels=True)
+async def list_keywords(ctx):
+    """List the status of all keywords."""
+    statuses = [f"`{keyword}`: {'enabled' if status else 'disabled'}" for keyword, status in KEYWORDS.items()]
+    await ctx.send("Keyword detection statuses:\n" + "\n".join(statuses))
+    
+# Lock channel logic if specific keywords are detected
     if message.author.bot:
-        if any(keyword in message.content.lower() for keyword in KEYWORDS):
+        
+        # Only detect enabled keywords
+        active_keywords = [k for k, v in KEYWORDS.items() if v]
+        if any(keyword in message.content.lower() for keyword in active_keywords):
+    
             if message.channel.id not in blacklisted_channels:
                 await lock_channel(message.channel)
                 embed = discord.Embed(
@@ -77,7 +112,7 @@ async def lock(ctx):
     await lock_channel(ctx.channel)
     embed = discord.Embed(
         title="Channel Locked",
-        description="The channel has been manually locked for Pokétwo.",
+        description="The channel has been manually locked for PokÃ©two.",
         color=discord.Color.red(),
     )
     embed.set_footer(text="Use the unlock command or button to restore access.")
@@ -91,7 +126,7 @@ async def unlock(ctx):
     await unlock_channel(ctx.channel)
     embed = discord.Embed(
         title="Channel Unlocked",
-        description="The channel has been unlocked for Pokétwo.",
+        description="The channel has been unlocked for PokÃ©two.",
         color=discord.Color.green(),
     )
     embed.set_footer(text="You can lock the channel again using the lock command.")
@@ -176,8 +211,8 @@ async def custom_help(ctx):
         description="Here are the commands you can use:",
         color=discord.Color.blue(),
     )
-    embed.add_field(name=".lock", value="Manually lock the current channel for Pokétwo.", inline=False)
-    embed.add_field(name=".unlock", value="Manually unlock the current channel for Pokétwo.", inline=False)
+    embed.add_field(name=".lock", value="Manually lock the current channel for PokÃ©two.", inline=False)
+    embed.add_field(name=".unlock", value="Manually unlock the current channel for PokÃ©two.", inline=False)
     embed.add_field(name=".delete", value="Delete the current channel.", inline=False)
     embed.add_field(name=".move <category>", value="Move the current channel to a different category.", inline=False)
     embed.add_field(name=".create <name> [category]", value="Create a new text channel.", inline=False)
@@ -211,7 +246,7 @@ async def lock_channel(channel):
     try:
         poketwo = await guild.fetch_member(POKETWO_ID)
     except discord.NotFound:
-        print("Pokétwo bot not found in this server.")
+        print("PokÃ©two bot not found in this server.")
         return
 
     overwrite = channel.overwrites_for(poketwo)
@@ -225,10 +260,10 @@ async def unlock_channel(channel):
     try:
         poketwo = await guild.fetch_member(POKETWO_ID)
     except discord.NotFound:
-        print("Pokétwo bot not found in this server.")
+        print("PokÃ©two bot not found in this server.")
         return
 
     await channel.set_permissions(poketwo, overwrite=None)
 
 
-bot.run(BOT_TOKEN)     
+bot.run(BOT_TOKEN)  
