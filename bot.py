@@ -182,16 +182,24 @@ async def lock(ctx):
 
 
 @bot.command(name="unlock")
-@commands.has_permissions(manage_channels=True)
 async def unlock(ctx):
-    await set_channel_permissions(ctx.channel, view_channel=None, send_messages=None)
-    embed = discord.Embed(
-        title="Channel Unlocked",
-        description="The channel has been unlocked for Pokétwo.",
-        color=discord.Color.green(),
-    )
-    embed.set_footer(text="You can lock the channel again using the lock command.")
-    await ctx.send(embed=embed)
+    """Unlock the current channel."""
+    unlock_role = discord.utils.get(ctx.guild.roles, name="unlock")
+
+    # Check if the user has the "unlock" role or manage_channels permission
+    if unlock_role in ctx.author.roles or ctx.author.guild_permissions.manage_channels:
+        await set_channel_permissions(ctx.channel, view_channel=None, send_messages=None)
+        embed = discord.Embed(
+            title="Channel Unlocked",
+            description="The channel has been unlocked for Pokétwo.",
+            color=discord.Color.green(),
+        )
+        embed.set_footer(text="You can lock the channel again using the lock command.")
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send(
+            "You don't have the required permissions or the 'unlock' role to unlock this channel."
+        )
 
 
 async def set_channel_permissions(channel, view_channel=None, send_messages=None):
