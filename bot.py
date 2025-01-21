@@ -47,7 +47,6 @@ class UnlockView(View):
 
     @discord.ui.button(label="Unlock Channel", style=discord.ButtonStyle.green)
     async def unlock_button(self, interaction: discord.Interaction, button: Button):
-        # Check if the user has the "unlock" role
         unlock_role = discord.utils.get(interaction.guild.roles, name="unlock")
         if unlock_role in interaction.user.roles:
             await set_channel_permissions(self.channel, view_channel=None, send_messages=None)
@@ -71,7 +70,6 @@ async def on_message(message):
         if message.author == bot.user:
             return
 
-        # Check for messages from Pokétwo and "These colors seem unusual... ✨"
         if message.author.bot and str(message.author) == "Pokétwo#8236":
             if "These colors seem unusual... ✨" in message.content:
                 embed = discord.Embed(
@@ -82,7 +80,6 @@ async def on_message(message):
                 embed.set_footer(text="Keep hunting for more rare Pokémon!")
                 await message.channel.send(embed=embed)
 
-        # Keyword detection logic
         if message.author.bot and message.content:
             active_keywords = [k for k, v in KEYWORDS.items() if v]
             if any(keyword in message.content.lower() for keyword in active_keywords):
@@ -97,7 +94,6 @@ async def on_message(message):
                     view = UnlockView(channel=message.channel)
                     await message.channel.send(embed=embed, view=view)
 
-        # Process commands after handling custom logic
         await bot.process_commands(message)
     except Exception as e:
         logging.error(f"Error in on_message: {e}")
@@ -105,7 +101,6 @@ async def on_message(message):
 
 @bot.command(name="help")
 async def help_command(ctx):
-    """Custom help command to display all available commands."""
     embed = discord.Embed(
         title="Bot Commands",
         description="Here are the available commands:",
@@ -131,7 +126,6 @@ async def help_command(ctx):
 
 @bot.command(name="owner")
 async def bot_owner(ctx):
-    """Display the bot creator."""
     embed = discord.Embed(
         title="Bot Creator",
         description="This bot was made by 💨 Suk Ballz",
@@ -143,13 +137,11 @@ async def bot_owner(ctx):
 @bot.command(name="toggle_keyword")
 @commands.has_permissions(manage_channels=True)
 async def toggle_keyword(ctx, *, keyword: str):
-    """Toggle detection of a specific keyword."""
     keyword = keyword.lower()
     if keyword not in KEYWORDS:
         await ctx.send(f"The keyword `{keyword}` is not valid. Available keywords: {', '.join(KEYWORDS.keys())}")
         return
 
-    # Toggle the status
     KEYWORDS[keyword] = not KEYWORDS[keyword]
     status = "enabled" if KEYWORDS[keyword] else "disabled"
     await ctx.send(f"Detection for `{keyword}` has been {status}.")
@@ -158,7 +150,6 @@ async def toggle_keyword(ctx, *, keyword: str):
 @bot.command(name="list_keywords")
 @commands.has_permissions(manage_channels=True)
 async def list_keywords(ctx):
-    """List the status of all keywords."""
     statuses = [f"`{keyword}`: {'enabled' if status else 'disabled'}" for keyword, status in KEYWORDS.items()]
     await ctx.send("Keyword detection statuses:\n" + "\n".join(statuses))
 
@@ -183,10 +174,8 @@ async def lock(ctx):
 
 @bot.command(name="unlock")
 async def unlock(ctx):
-    """Unlock the current channel."""
     unlock_role = discord.utils.get(ctx.guild.roles, name="unlock")
 
-    # Check if the user has the "unlock" role or manage_channels permission
     if unlock_role in ctx.author.roles or ctx.author.guild_permissions.manage_channels:
         await set_channel_permissions(ctx.channel, view_channel=None, send_messages=None)
         embed = discord.Embed(
@@ -203,7 +192,6 @@ async def unlock(ctx):
 
 
 async def set_channel_permissions(channel, view_channel=None, send_messages=None):
-    """Set channel permissions for Pokétwo bot."""
     guild = channel.guild
     try:
         poketwo = await guild.fetch_member(POKETWO_ID)
@@ -212,10 +200,17 @@ async def set_channel_permissions(channel, view_channel=None, send_messages=None
         return
 
     overwrite = channel.overwrites_for(poketwo)
+
     if view_channel is not None:
         overwrite.view_channel = view_channel
+    else:
+        overwrite.view_channel = True
+
     if send_messages is not None:
         overwrite.send_messages = send_messages
+    else:
+        overwrite.send_messages = True
+
     await channel.set_permissions(poketwo, overwrite=overwrite)
 
 
