@@ -161,6 +161,52 @@ async def remove_blacklist_channel(ctx, channel: discord.TextChannel):
         await ctx.send(f"{channel.mention} is not in the blacklist.")
 
 
+@bot.command(name="view_blacklist")
+@commands.has_permissions(manage_channels=True)
+async def view_blacklist(ctx):
+    """Displays all blacklisted channels."""
+    if not BLACKLISTED_CHANNELS:
+        await ctx.send("There are no blacklisted channels.")
+        return
+
+    # Create a list of channel mentions
+    blacklisted_mentions = [f"<#{channel_id}>" for channel_id in BLACKLISTED_CHANNELS]
+    embed = discord.Embed(
+        title="Blacklisted Channels",
+        description="\n".join(blacklisted_mentions),
+        color=discord.Color.blue(),
+    )
+    embed.set_footer(text="Use !remove_blacklist_channel <channel> to remove a channel from the blacklist.")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="help")
+async def help_command(ctx):
+    """Displays a list of all available commands."""
+    embed = discord.Embed(
+        title="Bot Commands",
+        description="Here is a list of all available commands:",
+        color=discord.Color.green(),
+    )
+
+    commands_list = [
+        {"name": "!lock", "description": "Manually locks the current channel for Pokétwo."},
+        {"name": "!unlock", "description": "Manually unlocks the current channel for Pokétwo."},
+        {"name": "!blacklist_channel <channel>", "description": "Blacklists a channel to prevent it from being locked."},
+        {"name": "!remove_blacklist_channel <channel>", "description": "Removes a channel from the blacklist."},
+        {"name": "!view_blacklist", "description": "Displays all blacklisted channels."},
+        {"name": "!ping", "description": "Responds with Pong!"},
+        {"name": "!owner", "description": "Displays information about the bot's owner."},
+        {"name": "!help", "description": "Displays this list of commands."},
+    ]
+
+    for command in commands_list:
+        embed.add_field(name=command["name"], value=command["description"], inline=False)
+
+    embed.set_footer(text="Use the commands responsibly!")
+    await ctx.send(embed=embed)
+
+
 async def lock_channel(channel):
     """Locks the channel for Pokétwo."""
     guild = channel.guild
@@ -184,10 +230,10 @@ async def unlock_channel(channel):
     try:
         poketwo = await guild.fetch_member(POKETWO_ID)
     except discord.NotFound:
-        print("Pokétwo bot not found in this server.")
+        print("Poketwo bot not found in this server.")
         return
 
-    # Restore default permissions for Pokétwo
+    # Restore default permissions for Poketwo
     await channel.set_permissions(poketwo, overwrite=None)
     print(f"Unlocked channel: {channel.name}")
 
