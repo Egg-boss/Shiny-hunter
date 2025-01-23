@@ -45,6 +45,20 @@ blacklisted_channels = set()
 # Lock countdown tasks
 lock_timers = {}
 
+# Database functionality (mock implementation for now)
+import sqlite3
+
+def get_db_connection():
+    conn = sqlite3.connect('bot_database.db')
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_db_connection()
+    conn.execute('CREATE TABLE IF NOT EXISTS channels (id INTEGER PRIMARY KEY, name TEXT)')
+    conn.close()
+
+init_db()
 
 class UnlockView(View):
     def __init__(self, channel):
@@ -240,11 +254,19 @@ async def help_command(ctx):
         ".blacklist": "Manage blacklisted channels.",
         ".create <channel_name> [category_name]": "Create a new text channel.",
         ".owner": "Displays the bot's creator.",
+        ".rename <new_name>": "Rename the current channel.",
     }
     for command, description in commands_list.items():
         embed.add_field(name=command, value=description, inline=False)
 
     await ctx.send(embed=embed)
+
+
+@bot.command(name="rename")
+@commands.has_permissions(manage_channels=True)
+async def rename_channel(ctx, new_name: str):
+    await ctx.channel.edit(name=new_name)
+    await ctx.send(f"Channel renamed to `{new_name}`.")
 
 
 @bot.command(name="toggle_lock_duration")
@@ -314,3 +336,4 @@ async def create_channel(ctx, channel_name: str, *, category_name: str = None):
 
 
 bot.run(BOT_TOKEN)
+                
