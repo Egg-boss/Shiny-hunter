@@ -5,6 +5,7 @@ import os
 from dotenv import load_dotenv
 import logging
 from datetime import datetime, timedelta
+import sqlite3
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -39,15 +40,13 @@ KEYWORDS = {
     "rare ping": True,
 }
 
-# Channel blacklist
+# Channel blacklist (loaded from DB)
 blacklisted_channels = set()
 
 # Lock countdown tasks
 lock_timers = {}
 
-# Database functionality (mock implementation for now)
-import sqlite3
-
+# Database functionality
 def get_db_connection():
     conn = sqlite3.connect('bot_database.db')
     conn.row_factory = sqlite3.Row
@@ -56,7 +55,27 @@ def get_db_connection():
 def init_db():
     conn = get_db_connection()
     conn.execute('CREATE TABLE IF NOT EXISTS channels (id INTEGER PRIMARY KEY, name TEXT)')
+    conn.execute('CREATE TABLE IF NOT EXISTS blacklisted_channels (id INTEGER PRIMARY KEY, channel_id INTEGER)')
     conn.close()
+
+def add_to_blacklist_db(channel_id):
+    conn = get_db_connection()
+    conn.execute('INSERT OR IGNORE INTO blacklisted_channels (channel_id) VALUES (?)', (channel_id,))
+    conn.commit()
+    conn.close()
+
+def remove_from_blacklist_db(channel_id):
+    conn = get_db_connection()
+    conn.execute('DELETE FROM blacklisted_channels WHERE channel_id = ?', (channel_id,))
+    conn.commit()
+    conn.close()
+
+def load_blacklisted_channels():
+    conn = get_db_connection()
+    cursor = conn.execute('SELECT channel_id FROM blacklisted_channels')
+    rows = cursor.fetchall()
+    conn.close()
+    return {row['channel_id'] for row in rows}
 
 init_db()
 
@@ -82,6 +101,10 @@ class UnlockView(View):
 @bot.event
 async def on_ready():
     logging.info(f"Bot is online as {bot.user}")
+    # Load blacklisted channels from the database
+    global blacklisted_channels
+    blacklisted_channels = load_blacklisted_channels()
+
     if not check_lock_timers.is_running():
         check_lock_timers.start()
 
@@ -193,6 +216,7 @@ async def blacklist_add(ctx, channel: discord.TextChannel):
         await ctx.send(f"{channel.mention} is already blacklisted.")
     else:
         blacklisted_channels.add(channel.id)
+        add_to_blacklist_db(channel.id)
         await ctx.send(f"{channel.mention} has been added to the blacklist.")
 
 
@@ -203,6 +227,7 @@ async def blacklist_remove(ctx, channel: discord.TextChannel):
         await ctx.send(f"{channel.mention} is not in the blacklist.")
     else:
         blacklisted_channels.remove(channel.id)
+        remove_from_blacklist_db(channel.id)
         await ctx.send(f"{channel.mention} has been removed from the blacklist.")
 
 
@@ -335,5 +360,27 @@ async def create_channel(ctx, channel_name: str, *, category_name: str = None):
         await ctx.send("An error occurred while creating the channel. Please ensure I have the necessary permissions.")
 
 
+# Unlock and Locked Commands
+@bot.command(name="unlock")
+async def unlock(ctx):
+    """Unlock the current channel manually."""
+    if ctx.channel.id in lock_timers:
+        await unlock_channel(ctx.channel, ctx.author)
+        await ctx.send("Channel unlocked manually.")
+    else:
+        await ctx.send("This channel is not locked.")
+
+
+@bot.command(name="locked")
+async def locked(ctx):
+    """Check if the current channel is locked."""
+    if ctx.channel.id in lock_timers:
+        remaining_time = lock_timers[ctx.channel.id] - datetime.now()
+        hours, remainder = divmod(int(remaining_time.total_seconds()), 3600)
+        minutes, _ = divmod(remainder, 60)
+        await ctx.send(f"This channel is locked and will unlock in {hours} hours and {minutes} minutes.")
+    else:
+        await ctx.send("This channel is not locked.")
+
+
 bot.run(BOT_TOKEN)
-                
