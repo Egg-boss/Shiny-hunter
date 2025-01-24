@@ -323,65 +323,75 @@ async def delete_channel(ctx):
 async def move_channel(ctx, *, category_name: str):
     category = discord.utils.get(ctx.guild.categories, name=category_name)
     if not category:
-        await ctx.send(f"Category `{category_name}` not found.")
+        await ctx.send("Category not found.")
         return
     await ctx.channel.edit(category=category)
-    await ctx.send(f"Channel moved to `{category_name}`.")
-
-
-@bot.command(name="clone")
-@commands.has_permissions(manage_channels=True)
-async def clone_channel(ctx):
-    cloned_channel = await ctx.channel.clone()
-    await cloned_channel.edit(position=ctx.channel.position + 1)
-    await ctx.send("Channel cloned successfully.")
+    await ctx.send(f"Channel moved to `{category.name}` category.")
 
 
 @bot.command(name="create")
 @commands.has_permissions(manage_channels=True)
 async def create_channel(ctx, channel_name: str, *, category_name: str = None):
-    """
-    Create a new text channel.
-    :param ctx: Command context.
-    :param channel_name: Name of the new channel to create.
-    :param category_name: Optional category name to place the new channel in.
-    """
-    category = None
-    if category_name:
-        category = discord.utils.get(ctx.guild.categories, name=category_name)
-        if not category:
-            await ctx.send(f"Category `{category_name}` not found. Creating the channel in the default category.")
-    
+    category = discord.utils.get(ctx.guild.categories, name=category_name) if category_name else None
+    new_channel = await ctx.guild.create_text_channel(name=channel_name, category=category)
+    await ctx.send(f"Channel `{channel_name}` created in `{category.name if category else 'No Category'}`.")
+
+
+@bot.command(name="clone")
+@commands.has_permissions(manage_channels=True)
+async def clone_channel(ctx):
+    """Clone the current channel."""
     try:
-        new_channel = await ctx.guild.create_text_channel(name=channel_name, category=category)
-        await ctx.send(f"Channel {new_channel.mention} created successfully in category `{category_name or 'Default'}`.")
+        cloned_channel = await ctx.channel.clone(reason=f"Cloned by {ctx.author}")
+        await cloned_channel.edit(position=ctx.channel.position + 1)
+        await ctx.send(f"Channel cloned successfully: {cloned_channel.mention}")
     except Exception as e:
-        logging.error(f"Error creating channel: {e}")
-        await ctx.send("An error occurred while creating the channel. Please ensure I have the necessary permissions.")
+        logging.error(f"Error cloning channel: {e}")
+        await ctx.send("An error occurred while cloning the channel. Please ensure I have the necessary permissions.")
 
 
-# Unlock and Locked Commands
+@bot.command(name="lock")
+@commands.has_permissions(manage_channels=True)
+async def lock_command(ctx):
+    await lock_channel(ctx.channel)
+    embed = discord.Embed(
+        title="🔒 Channel Locked",
+        description=f"This channel has been manually locked for {lock_duration} hours.",
+        color=discord.Color.red(),
+        timestamp=datetime.now(),
+    )
+    embed.set_footer(text="Use the unlock button or `.unlock` to restore access.")
+    view = UnlockView(channel=ctx.channel)
+    await ctx.send(embed=embed, view=view)
+
+
 @bot.command(name="unlock")
-async def unlock(ctx):
-    """Unlock the current channel manually."""
-    if ctx.channel.id in lock_timers:
-        await unlock_channel(ctx.channel, ctx.author)
-        await ctx.send("Channel unlocked manually.")
-    else:
-        await ctx.send("This channel is not locked.")
+@commands.has_permissions(manage_channels=True)
+async def unlock_command(ctx):
+    await unlock_channel(ctx.channel, ctx.author)
 
 
-@bot.command(name="locked")
-async def locked(ctx):
-    """Check if the current channel is locked."""
-    if ctx.channel.id in lock_timers:
-        remaining_time = lock_timers[ctx.channel.id] - datetime.now()
-        hours, remainder = divmod(int(remaining_time.total_seconds()), 3600)
-        minutes, _ = divmod(remainder, 60)
-        await ctx.send(f"This channel is locked and will unlock in {hours} hours and {minutes} minutes.")
-    else:
-        await ctx.send("This channel is not locked.")
+@bot.command(name="list_keywords")
+async def list_keywords(ctx):
+    embed = discord.Embed(
+        title="Keyword Status",
+        description="Current status of keyword monitoring:",
+        color=discord.Color.blue(),
+    )
+    for keyword, status in KEYWORDS.items():
+        embed.add_field(name=keyword, value="Enabled ✅" if status else "Disabled ❌", inline=False)
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="toggle_keyword")
+async def toggle_keyword(ctx, *, keyword: str):
+    keyword = keyword.lower()
+    if keyword not in KEYWORDS:
+        await ctx.send(f"Invalid keyword. Valid options are: {', '.join(KEYWORDS.keys())}")
+        return
+    KEYWORDS[keyword] = not KEYWORDS[keyword]
+    await ctx.send(f"Keyword `{keyword}` is now {'enabled' if KEYWORDS[keyword] else 'disabled'}.")
 
 
 bot.run(BOT_TOKEN)
-                
+    
