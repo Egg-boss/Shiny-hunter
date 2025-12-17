@@ -251,14 +251,25 @@ async def unlock(ctx):
 async def locked(ctx):
     if not lock_timers:
         return await ctx.send("🔓 No channels are locked.")
-    embed = discord.Embed(title="🔒 Locked Channels", color=discord.Color.red())
-    for cid, end in lock_timers.items():
-        ch = bot.get_channel(cid)
-        if not ch:
-            continue
-        mins = max(int((end - datetime.now()).total_seconds() // 60), 0)
-        embed.add_field(name=ch.name, value=f"{ch.mention}\nUnlocks in {mins} min", inline=False)
-    await ctx.send(embed=embed)
+
+    channels_list = list(lock_timers.items())
+    pages = []
+
+    for i in range(0, len(channels_list), 25):
+        embed = discord.Embed(title="🔒 Locked Channels", color=discord.Color.red())
+        for cid, end in channels_list[i:i+25]:
+            ch = bot.get_channel(cid)
+            if not ch:
+                continue
+            mins = max(int((end - datetime.now()).total_seconds() // 60), 0)
+            embed.add_field(name=ch.name, value=f"{ch.mention}\nUnlocks in {mins} min", inline=False)
+        pages.append(embed)
+
+    if len(pages) == 1:
+        await ctx.send(embed=pages[0])
+    else:
+        view = LockedPaginator(pages)
+        await ctx.send(embed=pages[0], view=view)
 
 @bot.command()
 async def check_timer(ctx):
@@ -370,14 +381,25 @@ async def slash_unlock(interaction: discord.Interaction):
 async def slash_locked(interaction: discord.Interaction):
     if not lock_timers:
         return await interaction.response.send_message("🔓 No channels are locked.", ephemeral=True)
-    embed = discord.Embed(title="🔒 Locked Channels", color=discord.Color.red())
-    for cid, end in lock_timers.items():
-        ch = bot.get_channel(cid)
-        if not ch:
-            continue
-        mins = max(int((end - datetime.now()).total_seconds() // 60), 0)
-        embed.add_field(name=ch.name, value=f"{ch.mention}\nUnlocks in {mins} min", inline=False)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    channels_list = list(lock_timers.items())
+    pages = []
+
+    for i in range(0, len(channels_list), 25):
+        embed = discord.Embed(title="🔒 Locked Channels", color=discord.Color.red())
+        for cid, end in channels_list[i:i+25]:
+            ch = bot.get_channel(cid)
+            if not ch:
+                continue
+            mins = max(int((end - datetime.now()).total_seconds() // 60), 0)
+            embed.add_field(name=ch.name, value=f"{ch.mention}\nUnlocks in {mins} min", inline=False)
+        pages.append(embed)
+
+    if len(pages) == 1:
+        await interaction.response.send_message(embed=pages[0], ephemeral=True)
+    else:
+        view = LockedPaginator(pages)
+        await interaction.response.send_message(embed=pages[0], view=view, ephemeral=True)
 
 @bot.tree.command(name="check_timer", description="Check this channel's lock timer")
 async def slash_check_timer(interaction: discord.Interaction):
