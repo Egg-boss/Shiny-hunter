@@ -176,11 +176,10 @@ async def locked(ctx):
     if not lock_timers:
         return await ctx.send("🔓 No channels are locked.")
 
-    channels_list = list(lock_timers.items())
-    pages = []
-    for i in range(0, len(channels_list), 25):
-        embed = discord.Embed(title="🔒 Locked Channels", color=discord.Color.red())
-        for cid, end in channels_list[i:i+25]:
+    channels_list = await get_locked_channels()  # await the coroutine
+for i in range(0, len(channels_list), 25):
+    ...
+
             ch = bot.get_channel(cid)
             if not ch:
                 continue
