@@ -1,4 +1,4 @@
-from discord import Option
+from discord import app_commands
 import discord
 from discord.ext import commands, tasks
 from discord.ui import Button, View
@@ -355,7 +355,7 @@ async def shutdown(ctx):
     await ctx.send("⚡ Shutting down...")
     await bot.close()
 
-# ================= SLASH COMMANDS =================
+# ---------------- SLASH LOCK COMMANDS ----------------
 @bot.tree.command(name="lock", description="Lock the current channel")
 async def slash_lock(interaction: discord.Interaction):
     await lock_channel(interaction.channel)
@@ -386,25 +386,29 @@ async def slash_check_timer(interaction: discord.Interaction):
         await interaction.response.send_message(f"Unlocks in {mins} minutes", ephemeral=True)
     else:
         await interaction.response.send_message("Channel not locked", ephemeral=True)
-# ================= SLASH BLACKLIST COMMANDS =================
 
+# ---------------- SLASH BLACKLIST COMMANDS ----------------
 @bot.tree.command(name="blacklist_add", description="Add a channel to the blacklist")
-async def slash_blacklist_add(interaction: discord.Interaction, channel: Option(discord.TextChannel, "Select a channel")):
+@app_commands.describe(channel="Select a channel")
+async def slash_blacklist_add(interaction: discord.Interaction, channel: discord.TextChannel):
     blacklisted_channels.add(channel.id)
     await interaction.response.send_message(f"{channel.mention} added to blacklist", ephemeral=True)
 
 @bot.tree.command(name="blacklist_remove", description="Remove a channel from the blacklist")
-async def slash_blacklist_remove(interaction: discord.Interaction, channel: Option(discord.TextChannel, "Select a channel")):
+@app_commands.describe(channel="Select a channel")
+async def slash_blacklist_remove(interaction: discord.Interaction, channel: discord.TextChannel):
     blacklisted_channels.discard(channel.id)
     await interaction.response.send_message(f"{channel.mention} removed from blacklist", ephemeral=True)
 
 @bot.tree.command(name="blacklist_addcategory", description="Add a category to the blacklist")
-async def slash_blacklist_addcategory(interaction: discord.Interaction, category: Option(discord.CategoryChannel, "Select a category")):
+@app_commands.describe(category="Select a category")
+async def slash_blacklist_addcategory(interaction: discord.Interaction, category: discord.CategoryChannel):
     blacklisted_categories.add(category.id)
     await interaction.response.send_message(f"Category **{category.name}** added to blacklist", ephemeral=True)
 
 @bot.tree.command(name="blacklist_removecategory", description="Remove a category from the blacklist")
-async def slash_blacklist_removecategory(interaction: discord.Interaction, category: Option(discord.CategoryChannel, "Select a category")):
+@app_commands.describe(category="Select a category")
+async def slash_blacklist_removecategory(interaction: discord.Interaction, category: discord.CategoryChannel):
     blacklisted_categories.discard(category.id)
     await interaction.response.send_message(f"Category **{category.name}** removed from blacklist", ephemeral=True)
 
@@ -420,6 +424,21 @@ async def slash_blacklist_list(interaction: discord.Interaction):
         if cat:
             lines.append(f"Category: **{cat.name}**")
     await interaction.response.send_message("\n".join(lines) if lines else "No blacklists set", ephemeral=True)
+
+# ---------------- SLASH OWNER COMMANDS ----------------
+@bot.tree.command(name="servers", description="List all servers the bot is in (Owner only)")
+async def slash_servers(interaction: discord.Interaction):
+    if interaction.user.id != OWNER_ID:
+        return await interaction.response.send_message("❌ You cannot use this command.", ephemeral=True)
+    lines = [f"{guild.name} | ID: {guild.id} | Members: {guild.member_count}" for guild in bot.guilds]
+    await interaction.response.send_message("\n".join(lines) or "No servers found.", ephemeral=True)
+
+@bot.tree.command(name="shutdown", description="Shut down the bot (Owner only)")
+async def slash_shutdown(interaction: discord.Interaction):
+    if interaction.user.id != OWNER_ID:
+        return await interaction.response.send_message("❌ You cannot use this command.", ephemeral=True)
+    await interaction.response.send_message("⚡ Shutting down...", ephemeral=True)
+    await bot.close()
 
 # ================= KEEP ALIVE & RUN =================
 keep_alive()
