@@ -122,6 +122,37 @@ async def startup_lock_scan():
 
         await set_permissions(channel, True)
         logging.info(f"🔒 Re-locked #{channel.name}")
+async def startup_history_scan():
+    """Scan recent messages to restore old locked channels"""
+    await bot.wait_until_ready()
+    logging.info("📜 Running history fallback scan...")
+
+    for guild in bot.guilds:
+        for channel in guild.text_channels:
+            if channel.id in blacklisted_channels:
+                continue
+            if channel.category and channel.category.id in blacklisted_categories:
+                continue
+
+            try:
+                async for msg in channel.history(limit=30):
+                    if not msg.embeds:
+                        continue
+
+                    title = msg.embeds[0].title or ""
+
+                    # Stop if unlocked found
+                    if "🔓 Channel Unlocked" in title:
+                        break
+
+                    # Restore lock if found first
+                    if "🔒 Channel Locked" in title:
+                        await lock_channel(channel)
+                        logging.info(f"🔒 Restored lock from history: #{channel.name}")
+                        break
+            except Exception as e:
+                logging.warning(f"Failed scanning #{channel.name}: {e}")
+                continue
 
 # ================= LOCK CORE =================
 async def lock_channel(channel):
@@ -260,6 +291,20 @@ class LockedPaginator(View):
         if self.index < len(self.pages) - 1:
             self.index += 1
         await self.update(interaction)
+@bot.event
+async def on_ready():
+    global blacklisted_channels, blacklisted_categories
+    blacklisted_channels, blacklisted_categories = load_blacklists()
+    logging.info(f"Bot online as {bot.user}")
+
+    # Restore any locks already in lock_timers (DB / memory)
+    await startup_lock_scan()
+
+    # Scan channel history to catch old locked channels not in DB
+    await startup_history_scan()
+
+    if not check_lock_timers.is_running():
+        check_lock_timers.start()
 
 # ================= AUTO UNLOCK =================
 @tasks.loop(seconds=60)
