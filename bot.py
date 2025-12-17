@@ -1,3 +1,4 @@
+from discord import Option
 import discord
 from discord.ext import commands, tasks
 from discord.ui import Button, View
