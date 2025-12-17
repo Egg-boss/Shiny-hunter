@@ -199,6 +199,20 @@ class UnlockView(View):
         await interaction.response.send_message("Unlocked.", ephemeral=True)
 
 # ================= EVENTS =================
+@bot.event
+async def on_ready():
+    global blacklisted_channels, blacklisted_categories
+    blacklisted_channels, blacklisted_categories = load_blacklists()
+    logging.info(f"Bot online as {bot.user}")
+
+    # Restore any locks already in lock_timers (DB / memory)
+    await startup_lock_scan()
+
+    # Scan channel history to catch old locked channels not in DB
+    await startup_history_scan()
+
+    if not check_lock_timers.is_running():
+        check_lock_timers.start()
 
 @bot.event
 async def on_message(msg):
@@ -283,20 +297,6 @@ class LockedPaginator(View):
         if self.index < len(self.pages) - 1:
             self.index += 1
         await self.update(interaction)
-@bot.event
-async def on_ready():
-    global blacklisted_channels, blacklisted_categories
-    blacklisted_channels, blacklisted_categories = load_blacklists()
-    logging.info(f"Bot online as {bot.user}")
-
-    # Restore any locks already in lock_timers (DB / memory)
-    await startup_lock_scan()
-
-    # Scan channel history to catch old locked channels not in DB
-    await startup_history_scan()
-
-    if not check_lock_timers.is_running():
-        check_lock_timers.start()
 
 # ================= AUTO UNLOCK =================
 @tasks.loop(seconds=60)
