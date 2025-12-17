@@ -81,31 +81,31 @@ async def startup_history_scan():
             except Exception as e:
                 logging.warning(f"Failed scanning #{channel.name}: {e}")
 # ---------------- LOCK SYSTEM ----------------
+lock_timers = {}  # global dict for tracking locks
+
 async def set_channel_permissions(channel, view=None, send=None):
+    """Set Pokétwo permissions for channel"""
     try:
         poketwo = await channel.guild.fetch_member(POKETWO_ID)
     except:
-        poketwo = None
-    if poketwo:
-        ow = channel.overwrites_for(poketwo)
-        ow.view_channel = view if view is not None else True
-        ow.send_messages = send if send is not None else True
-        await channel.set_permissions(poketwo, overwrite=ow)
+        return
+    ow = channel.overwrites_for(poketwo)
+    ow.view_channel = view if view is not None else True
+    ow.send_messages = send if send is not None else True
+    await channel.set_permissions(poketwo, overwrite=ow)
 
 async def lock_channel(channel):
-    """Lock a channel and store unlock time"""
+    """Lock a channel and set timer"""
     if channel.id in lock_timers:
         return
-    await set_channel_permissions(channel, view=False, send=False)
-    unlock_time = datetime.now() + timedelta(hours=lock_duration_default)
-    lock_timers[channel.id] = unlock_time
+    await set_channel_permissions(channel, False, False)
+    lock_timers[channel.id] = datetime.now() + timedelta(hours=lock_duration)
 
 async def unlock_channel(channel, user):
-    """Unlock a channel and remove from lock_timers"""
-    if channel.id not in lock_timers:
-        return
-    await set_channel_permissions(channel, view=None, send=None)
+    """Unlock channel and remove from lock_timers"""
+    await set_channel_permissions(channel, True, True)
     lock_timers.pop(channel.id, None)
+
     embed = discord.Embed(
         title="🔓 Channel Unlocked",
         description=f"Unlocked by {user.mention}",
@@ -117,13 +117,15 @@ async def unlock_channel(channel, user):
 # ---------------- AUTO UNLOCK LOOP ----------------
 @tasks.loop(seconds=60)
 async def check_lock_timers():
-    """Check all locks and auto-unlock expired channels"""
     now = datetime.now()
+    # lock_timers is always a dict
     for cid, end_time in list(lock_timers.items()):
         if now >= end_time:
             channel = bot.get_channel(cid)
             if channel:
                 await unlock_channel(channel, bot.user)
+            lock_timers.pop(cid, None)
+
 # ---------------- UNLOCK BUTTON ----------------
 class UnlockView(View):
     def __init__(self, channel):
