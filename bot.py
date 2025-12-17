@@ -176,10 +176,15 @@ async def locked(ctx):
     if not lock_timers:
         return await ctx.send("🔓 No channels are locked.")
 
-    channels_list = await get_locked_channels()  # await the coroutine
-for i in range(0, len(channels_list), 25):
-    ...
+    # Get locked channels as a list of tuples (channel_id, unlock_time)
+    channels_list = list(lock_timers.items())  # dict items are fine, no coroutine
 
+    pages = []
+    # Discord embeds support max 25 fields per embed
+    for i in range(0, len(channels_list), 25):
+        embed = discord.Embed(title="🔒 Locked Channels", color=discord.Color.red())
+        chunk = channels_list[i:i + 25]
+        for cid, end in chunk:
             ch = bot.get_channel(cid)
             if not ch:
                 continue
@@ -258,16 +263,19 @@ async def list(ctx):
     await ctx.send("\n".join(lines) if lines else "No blacklists set")
 
 # ---------------- SLASH COMMANDS ----------------
-@bot.tree.command(name="locked", description="Show all locked channels")
+@bot.tree.command(name="locked", description="Show all locked channels with pagination")
 async def slash_locked(interaction: discord.Interaction):
+    """Show locked channels with pagination for slash command"""
     if not lock_timers:
         return await interaction.response.send_message("🔓 No channels are locked.", ephemeral=True)
 
-    channels_list = list(lock_timers.items())
+    channels_list = list(lock_timers.items())  # safe list of tuples (channel_id, unlock_time)
     pages = []
+
     for i in range(0, len(channels_list), 25):
         embed = discord.Embed(title="🔒 Locked Channels", color=discord.Color.red())
-        for cid, end in channels_list[i:i+25]:
+        chunk = channels_list[i:i + 25]
+        for cid, end in chunk:
             ch = bot.get_channel(cid)
             if not ch:
                 continue
@@ -280,7 +288,6 @@ async def slash_locked(interaction: discord.Interaction):
     else:
         view = LockedPaginator(pages)
         await interaction.response.send_message(embed=pages[0], view=view, ephemeral=True)
-
 # ---------------- OWNER-ONLY SLASH ----------------
 @bot.tree.command(name="servers", description="List all servers the bot is in")
 async def slash_servers(interaction: discord.Interaction):
