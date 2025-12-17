@@ -199,14 +199,6 @@ class UnlockView(View):
         await interaction.response.send_message("Unlocked.", ephemeral=True)
 
 # ================= EVENTS =================
-@bot.event
-async def on_ready():
-    load_state()
-    await startup_lock_scan()
-    await bot.tree.sync()
-    if not check_lock_timers.is_running():
-        check_lock_timers.start()
-    logging.info(f"✅ Online as {bot.user}")
 
 @bot.event
 async def on_message(msg):
