@@ -2,56 +2,55 @@ import discord
 from discord.ext import commands, tasks
 from discord.ui import Button, View
 import os
+from dotenv import load_dotenv
 import logging
 from datetime import datetime, timedelta
 import threading
 from flask import Flask
 
+# ---------------- ENV ----------------
+load_dotenv()
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+OWNER_ID = int(os.getenv("OWNER_ID"))
+POKETWO_ID = 716390085896962058
+
+if not BOT_TOKEN or not OWNER_ID:
+    raise RuntimeError("BOT_TOKEN or OWNER_ID missing in environment")
+
+# ---------------- LOGGING ----------------
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
 # ---------------- KEEP ALIVE ----------------
 app = Flask(__name__)
-
 @app.route("/")
 def home():
     return "Bot is alive"
 
 def keep_alive():
-    threading.Thread(
-        target=lambda: app.run(host="0.0.0.0", port=8080),
-        daemon=True
-    ).start()
+    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=8080), daemon=True).start()
 
-# ---------------- LOGGING ----------------
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-
-# ---------------- ENV ----------------
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-OWNER_ID = int(os.getenv("OWNER_ID"))
-
-if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN missing")
-
-POKETWO_ID = 716390085896962058
-
-# ---------------- DISCORD ----------------
+# ---------------- INTENTS ----------------
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
-
 bot = commands.Bot(command_prefix=".", intents=intents)
 bot.remove_command("help")
 
-# ---------------- CONFIG / IN-MEMORY ----------------
-lock_duration = 12  # default hours
+# ---------------- GLOBALS ----------------
+lock_duration = 12  # default lock duration
+KEYWORDS = ["shiny hunt pings", "collection pings", "rare ping"]
 
 blacklisted_channels = set()
 blacklisted_categories = set()
-lock_timers = {}
+lock_timers = {}  # channel_id: unlock_datetime
 
-KEYWORDS = [
-    "shiny hunt pings",
-    "collection pings",
-    "rare ping"
-]
+server_config = {}  # guild_id: {"lock_hours":12, "keywords_enabled":True}
+
+# ---------------- CONFIG HELPERS ----------------
+def get_config(guild_id):
+    if guild_id not in server_config:
+        server_config[guild_id] = {"lock_hours": lock_duration, "keywords_enabled": True}
+    return server_config[guild_id]
 
 # ---------------- UNLOCK VIEW ----------------
 class UnlockView(View):
@@ -66,25 +65,31 @@ class UnlockView(View):
 
 # ---------------- LOCK SYSTEM ----------------
 async def set_channel_permissions(channel, view=None, send=None):
+    """Adjust PokeTwo bot permissions in the channel"""
     try:
         poketwo = await channel.guild.fetch_member(POKETWO_ID)
     except:
         return
+
     ow = channel.overwrites_for(poketwo)
     ow.view_channel = view if view is not None else True
     ow.send_messages = send if send is not None else True
     await channel.set_permissions(poketwo, overwrite=ow)
 
-async def lock_channel(channel, duration=None):
+async def lock_channel(channel, hours=None):
+    """Lock a channel for X hours"""
     if channel.id in lock_timers:
         return
-    await set_channel_permissions(channel, False, False)
-    lock_timers[channel.id] = datetime.now() + timedelta(hours=duration or lock_duration)
+
+    cfg = get_config(channel.guild.id)
+    duration = hours or cfg["lock_hours"]
+    await set_channel_permissions(channel, view=False, send=False)
+    lock_timers[channel.id] = datetime.now() + timedelta(hours=duration)
 
 async def unlock_channel(channel, user):
-    await set_channel_permissions(channel, None, None)
+    """Unlock a channel and remove from lock timers"""
+    await set_channel_permissions(channel, view=None, send=None)
     lock_timers.pop(channel.id, None)
-
     embed = discord.Embed(
         title="🔓 Channel Unlocked",
         description=f"Unlocked by {user.mention}",
@@ -93,10 +98,11 @@ async def unlock_channel(channel, user):
     )
     await channel.send(embed=embed)
 
-# ---------------- STARTUP SCAN ----------------
+# ================= STARTUP SCAN =================
 async def startup_lock_scan():
+    """Restore locks from memory (in-memory only)"""
     logging.info("🔎 Startup scan running...")
-    for cid, end in lock_timers.items():
+    for cid, end in lock_timers.copy().items():
         channel = bot.get_channel(cid)
         if not channel:
             continue
@@ -104,10 +110,13 @@ async def startup_lock_scan():
             continue
         if channel.category and channel.category.id in blacklisted_categories:
             continue
-        await set_channel_permissions(channel, False, False)
+
+        await set_channel_permissions(channel, view=False, send=False)
         logging.info(f"🔒 Re-locked #{channel.name}")
 
 async def startup_history_scan():
+    """Scan recent messages to restore old locked channels based on embeds"""
+    await bot.wait_until_ready()
     logging.info("📜 Running history fallback scan...")
     for guild in bot.guilds:
         for channel in guild.text_channels:
@@ -130,7 +139,7 @@ async def startup_history_scan():
                 logging.warning(f"Failed scanning #{channel.name}: {e}")
                 continue
 
-# ---------------- AUTO UNLOCK LOOP ----------------
+# ================= AUTO UNLOCK TASK =================
 @tasks.loop(seconds=60)
 async def check_lock_timers():
     now = datetime.now()
@@ -140,16 +149,20 @@ async def check_lock_timers():
             if channel:
                 await unlock_channel(channel, bot.user)
             lock_timers.pop(cid, None)
-
-# ---------------- EVENTS ----------------
+# ================= EVENTS =================
 @bot.event
 async def on_ready():
     logging.info(f"✅ Bot online as {bot.user}")
+
+    # Restore any locks already in memory
     await startup_lock_scan()
+
+    # Scan channel history to catch old locked channels not in memory
     await startup_history_scan()
-    await bot.tree.sync()
+
     if not check_lock_timers.is_running():
         check_lock_timers.start()
+
 
 @bot.event
 async def on_message(msg):
@@ -158,23 +171,21 @@ async def on_message(msg):
             return
         if msg.channel.category and msg.channel.category.id in blacklisted_categories:
             return
-        if any(k in msg.content.lower() for k in KEYWORDS):
+
+        cfg = get_config(msg.guild.id)
+        if cfg["keywords_enabled"] and any(k in msg.content.lower() for k in KEYWORDS):
             await lock_channel(msg.channel)
-            embed = discord.Embed(title="🔒 Channel Locked", color=discord.Color.red())
+            embed = discord.Embed(
+                title="🔒 Channel Locked",
+                description=f"Locked for {cfg['lock_hours']} hours due to keyword detection",
+                color=discord.Color.red(),
+                timestamp=datetime.now()
+            )
             await msg.channel.send(embed=embed, view=UnlockView(msg.channel))
+
     await bot.process_commands(msg)
-from discord import app_commands
 
-# ---------------- CONFIG / SERVER ----------------
-# per-guild config stored in memory
-server_config = {}  # guild_id: {"lock_hours":12, "keywords_enabled":True}
-
-def get_config(guild_id):
-    if guild_id not in server_config:
-        server_config[guild_id] = {"lock_hours": lock_duration, "keywords_enabled": True}
-    return server_config[guild_id]
-
-# ---------------- BLACKLIST COMMANDS ----------------
+# ================= BLACKLIST COMMANDS =================
 @bot.group(invoke_without_command=True)
 async def blacklist(ctx):
     await ctx.send(
@@ -194,7 +205,7 @@ async def add(ctx, channel: discord.TextChannel):
 @blacklist.command()
 async def remove(ctx, channel: discord.TextChannel):
     blacklisted_channels.discard(channel.id)
-    await ctx.send(f"{channel.mention} removed")
+    await ctx.send(f"{channel.mention} removed from blacklist")
 
 @blacklist.command()
 async def addcategory(ctx, *, name):
@@ -210,7 +221,7 @@ async def removecategory(ctx, *, name):
     if not cat:
         return await ctx.send("Category not found")
     blacklisted_categories.discard(cat.id)
-    await ctx.send(f"Category **{cat.name}** removed")
+    await ctx.send(f"Category **{cat.name}** removed from blacklist")
 
 @blacklist.command()
 async def list(ctx):
@@ -225,11 +236,10 @@ async def list(ctx):
             lines.append(f"Category: **{cat.name}**")
     await ctx.send("\n".join(lines) if lines else "No blacklists set")
 
-# ---------------- LOCK COMMANDS ----------------
+# ================= LOCK/UNLOCK COMMANDS =================
 @bot.command()
 async def lock(ctx):
-    cfg = get_config(ctx.guild.id)
-    await lock_channel(ctx.channel, cfg["lock_hours"])
+    await lock_channel(ctx.channel)
     await ctx.send("🔒 Channel locked", view=UnlockView(ctx.channel))
 
 @bot.command()
@@ -240,21 +250,14 @@ async def unlock(ctx):
 async def locked(ctx):
     if not lock_timers:
         return await ctx.send("🔓 No channels are locked.")
-    pages = []
-    items = list(lock_timers.items())
-    for i in range(0, len(items), 5):
-        embed = discord.Embed(title="🔒 Locked Channels", color=discord.Color.red())
-        for cid, end in items[i:i+5]:
-            ch = bot.get_channel(cid)
-            if not ch:
-                continue
-            mins = max(int((end - datetime.now()).total_seconds() // 60), 0)
-            embed.add_field(name=ch.name, value=f"{ch.mention}\nUnlocks in {mins} min", inline=False)
-        pages.append(embed)
-    if len(pages) == 1:
-        await ctx.send(embed=pages[0])
-    else:
-        await ctx.send(embed=pages[0], view=LockedPaginator(pages))
+    embed = discord.Embed(title="🔒 Locked Channels", color=discord.Color.red())
+    for cid, end in lock_timers.items():
+        ch = bot.get_channel(cid)
+        if not ch:
+            continue
+        mins = max(int((end - datetime.now()).total_seconds() // 60), 0)
+        embed.add_field(name=ch.name, value=f"{ch.mention}\nUnlocks in {mins} min", inline=False)
+    await ctx.send(embed=embed)
 
 @bot.command()
 async def check_timer(ctx):
@@ -264,7 +267,7 @@ async def check_timer(ctx):
     else:
         await ctx.send("Channel not locked")
 
-# ---------------- CONFIG COMMANDS ----------------
+# ================= SERVER CONFIG =================
 @bot.command()
 @commands.has_permissions(manage_guild=True)
 async def setlockhours(ctx, hours: int):
@@ -278,7 +281,7 @@ async def setlockhours(ctx, hours: int):
 @commands.has_permissions(manage_guild=True)
 async def keywords(ctx, state: str):
     state = state.lower()
-    if state not in ("on","off"):
+    if state not in ("on", "off"):
         return await ctx.send("Use: `.keywords on` or `.keywords off`")
     cfg = get_config(ctx.guild.id)
     cfg["keywords_enabled"] = True if state == "on" else False
@@ -292,48 +295,7 @@ async def config(ctx):
     embed.add_field(name="Keywords", value="ON" if cfg["keywords_enabled"] else "OFF", inline=False)
     await ctx.send(embed=embed)
 
-# ---------------- OWNER COMMANDS ----------------
-@bot.command()
-async def owner(ctx):
-    await ctx.send(f"Made by Buddy! ID: {OWNER_ID}")
-
-@bot.command()
-async def servers(ctx):
-    if ctx.author.id != OWNER_ID:
-        return await ctx.send("Only the bot owner can use this.")
-    lines = [f"{guild.name} ({guild.id})" for guild in bot.guilds]
-    await ctx.send("\n".join(lines) if lines else "Not in any servers")
-
-@bot.command()
-async def shutdown(ctx):
-    if ctx.author.id != OWNER_ID:
-        return await ctx.send("Only the bot owner can use this.")
-    await ctx.send("Shutting down...")
-    await bot.close()
-
-# ---------------- HELP COMMAND ----------------
-@bot.command(name="help")
-async def help_cmd(ctx):
-    embed = discord.Embed(title="Bot Commands", color=discord.Color.blue())
-    cmds = {
-        ".help": "Show this menu",
-        ".lock": "Lock channel",
-        ".unlock": "Unlock channel (anyone)",
-        ".locked": "List locked channels",
-        ".check_timer": "Check lock timer",
-        ".blacklist": "Manage blacklists",
-        ".setlockhours": "Set lock duration per server",
-        ".keywords": "Enable/disable keyword detection",
-        ".config": "View server config",
-        ".owner": "Bot creator",
-        ".servers": "List servers (owner only)",
-        ".shutdown": "Shutdown bot (owner only)",
-    }
-    for c,d in cmds.items():
-        embed.add_field(name=c, value=d, inline=False)
-    await ctx.send(embed=embed)
-
-# ---------------- PAGINATOR ----------------
+# ================= HELP COMMAND =================
 class LockedPaginator(View):
     def __init__(self, pages):
         super().__init__(timeout=120)
@@ -351,15 +313,51 @@ class LockedPaginator(View):
 
     @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary)
     async def next(self, interaction, _):
-        if self.index < len(self.pages)-1:
+        if self.index < len(self.pages) - 1:
             self.index += 1
         await self.update(interaction)
 
-# ---------------- SLASH COMMANDS ----------------
+@bot.command(name="help")
+async def help_cmd(ctx):
+    embed = discord.Embed(title="Bot Commands", color=discord.Color.blue())
+    cmds = {
+        ".help": "Show this menu",
+        ".lock": "Lock channel",
+        ".unlock": "Unlock channel (anyone)",
+        ".locked": "List locked channels",
+        ".blacklist": "Manage blacklists",
+        ".check_timer": "Check lock timer",
+        ".setlockhours": "Set lock duration (manage server)",
+        ".keywords": "Toggle keyword detection (manage server)",
+        ".config": "View server config",
+        ".owner": "Bot creator",
+    }
+    for c, d in cmds.items():
+        embed.add_field(name=c, value=d, inline=False)
+    await ctx.send(embed=embed)
+# ================= OWNER COMMANDS =================
+@bot.command()
+async def owner(ctx):
+    await ctx.send(f"Made by Buddy | <@{OWNER_ID}>")
+
+@bot.command()
+async def servers(ctx):
+    if ctx.author.id != OWNER_ID:
+        return await ctx.send("❌ You cannot use this command.")
+    lines = [f"{guild.name} | ID: {guild.id} | Members: {guild.member_count}" for guild in bot.guilds]
+    await ctx.send("\n".join(lines) or "No servers found.")
+
+@bot.command()
+async def shutdown(ctx):
+    if ctx.author.id != OWNER_ID:
+        return await ctx.send("❌ You cannot use this command.")
+    await ctx.send("⚡ Shutting down...")
+    await bot.close()
+
+# ================= SLASH COMMANDS =================
 @bot.tree.command(name="lock", description="Lock the current channel")
 async def slash_lock(interaction: discord.Interaction):
-    cfg = get_config(interaction.guild.id)
-    await lock_channel(interaction.channel, cfg["lock_hours"])
+    await lock_channel(interaction.channel)
     await interaction.response.send_message("🔒 Channel locked", ephemeral=True)
 
 @bot.tree.command(name="unlock", description="Unlock the current channel")
@@ -367,78 +365,61 @@ async def slash_unlock(interaction: discord.Interaction):
     await unlock_channel(interaction.channel, interaction.user)
     await interaction.response.send_message("🔓 Channel unlocked", ephemeral=True)
 
-@bot.tree.command(name="locked", description="Show locked channels")
+@bot.tree.command(name="locked", description="Show all locked channels")
 async def slash_locked(interaction: discord.Interaction):
     if not lock_timers:
-        return await interaction.response.send_message("🔓 No channels locked", ephemeral=True)
-    pages = []
-    items = list(lock_timers.items())
-    for i in range(0, len(items), 5):
-        embed = discord.Embed(title="🔒 Locked Channels", color=discord.Color.red())
-        for cid, end in items[i:i+5]:
-            ch = bot.get_channel(cid)
-            if not ch:
-                continue
-            mins = max(int((end - datetime.now()).total_seconds() // 60),0)
-            embed.add_field(name=ch.name, value=f"{ch.mention}\nUnlocks in {mins} min", inline=False)
-        pages.append(embed)
-    await interaction.response.send_message(embed=pages[0], view=LockedPaginator(pages), ephemeral=True)
-# ---------------- SLASH COMMANDS (CONTINUED) ----------------
-@bot.tree.command(name="check_timer", description="Check lock timer for this channel")
+        return await interaction.response.send_message("🔓 No channels are locked.", ephemeral=True)
+    embed = discord.Embed(title="🔒 Locked Channels", color=discord.Color.red())
+    for cid, end in lock_timers.items():
+        ch = bot.get_channel(cid)
+        if not ch:
+            continue
+        mins = max(int((end - datetime.now()).total_seconds() // 60), 0)
+        embed.add_field(name=ch.name, value=f"{ch.mention}\nUnlocks in {mins} min", inline=False)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="check_timer", description="Check this channel's lock timer")
 async def slash_check_timer(interaction: discord.Interaction):
     if interaction.channel.id in lock_timers:
         mins = int((lock_timers[interaction.channel.id] - datetime.now()).total_seconds() // 60)
         await interaction.response.send_message(f"Unlocks in {mins} minutes", ephemeral=True)
     else:
         await interaction.response.send_message("Channel not locked", ephemeral=True)
+# ================= SLASH BLACKLIST COMMANDS =================
 
-@bot.tree.command(name="config", description="View server config")
-async def slash_config(interaction: discord.Interaction):
-    cfg = get_config(interaction.guild.id)
-    embed = discord.Embed(title="Server Config", color=discord.Color.blue())
-    embed.add_field(name="Lock Hours", value=cfg["lock_hours"], inline=False)
-    embed.add_field(name="Keywords", value="ON" if cfg["keywords_enabled"] else "OFF", inline=False)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+@bot.tree.command(name="blacklist_add", description="Add a channel to the blacklist")
+async def slash_blacklist_add(interaction: discord.Interaction, channel: Option(discord.TextChannel, "Select a channel")):
+    blacklisted_channels.add(channel.id)
+    await interaction.response.send_message(f"{channel.mention} added to blacklist", ephemeral=True)
 
-@bot.tree.command(name="keywords", description="Enable or disable keyword detection")
-@app_commands.describe(state="on/off")
-async def slash_keywords(interaction: discord.Interaction, state: str):
-    state = state.lower()
-    if state not in ("on","off"):
-        return await interaction.response.send_message("Use `/keywords on` or `/keywords off`", ephemeral=True)
-    cfg = get_config(interaction.guild.id)
-    cfg["keywords_enabled"] = True if state == "on" else False
-    await interaction.response.send_message(f"🔑 Keyword detection **{state.upper()}**", ephemeral=True)
+@bot.tree.command(name="blacklist_remove", description="Remove a channel from the blacklist")
+async def slash_blacklist_remove(interaction: discord.Interaction, channel: Option(discord.TextChannel, "Select a channel")):
+    blacklisted_channels.discard(channel.id)
+    await interaction.response.send_message(f"{channel.mention} removed from blacklist", ephemeral=True)
 
-@bot.tree.command(name="setlockhours", description="Set lock duration in hours")
-@app_commands.describe(hours="Lock duration between 1-72 hours")
-async def slash_setlockhours(interaction: discord.Interaction, hours: int):
-    if interaction.user.guild_permissions.manage_guild is False:
-        return await interaction.response.send_message("You need Manage Server permission.", ephemeral=True)
-    if hours < 1 or hours > 72:
-        return await interaction.response.send_message("Lock hours must be between 1 and 72", ephemeral=True)
-    cfg = get_config(interaction.guild.id)
-    cfg["lock_hours"] = hours
-    await interaction.response.send_message(f"🔧 Lock duration set to **{hours} hours**", ephemeral=True)
+@bot.tree.command(name="blacklist_addcategory", description="Add a category to the blacklist")
+async def slash_blacklist_addcategory(interaction: discord.Interaction, category: Option(discord.CategoryChannel, "Select a category")):
+    blacklisted_categories.add(category.id)
+    await interaction.response.send_message(f"Category **{category.name}** added to blacklist", ephemeral=True)
 
-@bot.tree.command(name="owner", description="Show bot owner")
-async def slash_owner(interaction: discord.Interaction):
-    await interaction.response.send_message(f"Made by Buddy! ID: {OWNER_ID}", ephemeral=True)
+@bot.tree.command(name="blacklist_removecategory", description="Remove a category from the blacklist")
+async def slash_blacklist_removecategory(interaction: discord.Interaction, category: Option(discord.CategoryChannel, "Select a category")):
+    blacklisted_categories.discard(category.id)
+    await interaction.response.send_message(f"Category **{category.name}** removed from blacklist", ephemeral=True)
 
-@bot.tree.command(name="servers", description="List all servers the bot is in (owner only)")
-async def slash_servers(interaction: discord.Interaction):
-    if interaction.user.id != OWNER_ID:
-        return await interaction.response.send_message("Only the bot owner can use this.", ephemeral=True)
-    lines = [f"{guild.name} ({guild.id})" for guild in bot.guilds]
-    await interaction.response.send_message("\n".join(lines) if lines else "Not in any servers", ephemeral=True)
+@bot.tree.command(name="blacklist_list", description="List all blacklisted channels and categories")
+async def slash_blacklist_list(interaction: discord.Interaction):
+    lines = []
+    for cid in blacklisted_channels:
+        ch = bot.get_channel(cid)
+        if ch:
+            lines.append(f"Channel: {ch.mention}")
+    for cid in blacklisted_categories:
+        cat = discord.utils.get(interaction.guild.categories, id=cid)
+        if cat:
+            lines.append(f"Category: **{cat.name}**")
+    await interaction.response.send_message("\n".join(lines) if lines else "No blacklists set", ephemeral=True)
 
-@bot.tree.command(name="shutdown", description="Shutdown the bot (owner only)")
-async def slash_shutdown(interaction: discord.Interaction):
-    if interaction.user.id != OWNER_ID:
-        return await interaction.response.send_message("Only the bot owner can use this.", ephemeral=True)
-    await interaction.response.send_message("Shutting down...", ephemeral=True)
-    await bot.close()
-
-# ---------------- START ----------------
+# ================= KEEP ALIVE & RUN =================
 keep_alive()
 bot.run(BOT_TOKEN)
