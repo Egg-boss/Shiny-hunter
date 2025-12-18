@@ -203,6 +203,93 @@ async def slash_unlock(interaction: discord.Interaction):
 async def slash_locked(interaction: discord.Interaction):
     if not lock_timers:
         return await interaction.response.send_message("No locked channels", ephemeral=True)
+from discord import app_commands
+
+# ================= SLASH BLACKLIST =================
+
+@bot.tree.command(name="blacklist_add", description="Blacklist a channel")
+@app_commands.describe(channel="Channel to blacklist")
+async def blacklist_add(interaction: discord.Interaction, channel: discord.TextChannel):
+    if interaction.user.id != OWNER_ID:
+        return await interaction.response.send_message("Owner only", ephemeral=True)
+
+    blacklisted_channels.add(channel.id)
+    await interaction.response.send_message(
+        f"🚫 {channel.mention} blacklisted",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="blacklist_remove", description="Remove channel from blacklist")
+@app_commands.describe(channel="Channel to unblacklist")
+async def blacklist_remove(interaction: discord.Interaction, channel: discord.TextChannel):
+    if interaction.user.id != OWNER_ID:
+        return await interaction.response.send_message("Owner only", ephemeral=True)
+
+    blacklisted_channels.discard(channel.id)
+    await interaction.response.send_message(
+        f"✅ {channel.mention} removed",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="blacklist_list", description="List blacklisted channels/categories")
+async def blacklist_list(interaction: discord.Interaction):
+    if interaction.user.id != OWNER_ID:
+        return await interaction.response.send_message("Owner only", ephemeral=True)
+
+    lines = []
+
+    for cid in blacklisted_channels:
+        ch = bot.get_channel(cid)
+        if ch:
+            lines.append(f"Channel: {ch.mention}")
+
+    for cid in blacklisted_categories:
+        cat = discord.utils.get(interaction.guild.categories, id=cid)
+        if cat:
+            lines.append(f"Category: **{cat.name}**")
+
+    if not lines:
+        return await interaction.response.send_message("No blacklists set", ephemeral=True)
+
+    await interaction.response.send_message(
+        "```" + "\n".join(lines) + "```",
+        ephemeral=True
+    )
+
+
+# ================= SLASH OWNER =================
+
+@bot.tree.command(name="servers", description="List servers the bot is in")
+async def servers(interaction: discord.Interaction):
+    if interaction.user.id != OWNER_ID:
+        return await interaction.response.send_message("Owner only", ephemeral=True)
+
+    lines = [f"{g.name} ({g.id})" for g in bot.guilds]
+    msg = "\n".join(lines[:25])
+
+    await interaction.response.send_message(
+        f"```{msg}```",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="leave", description="Force the bot to leave a server")
+@app_commands.describe(guild_id="Guild ID to leave")
+async def leave(interaction: discord.Interaction, guild_id: str):
+    if interaction.user.id != OWNER_ID:
+        return await interaction.response.send_message("Owner only", ephemeral=True)
+
+    guild = bot.get_guild(int(guild_id))
+    if not guild:
+        return await interaction.response.send_message("Guild not found", ephemeral=True)
+
+    await guild.leave()
+    await interaction.response.send_message(
+        f"👋 Left **{guild.name}**",
+        ephemeral=True
+    )
 
     items = list(lock_timers.items())
     embed = discord.Embed(title="🔒 Locked Channels")
