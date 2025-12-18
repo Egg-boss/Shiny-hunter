@@ -203,7 +203,6 @@ async def slash_unlock(interaction: discord.Interaction):
 async def slash_locked(interaction: discord.Interaction):
     if not lock_timers:
         return await interaction.response.send_message("No locked channels", ephemeral=True)
-from discord import app_commands
 
 # ================= SLASH BLACKLIST =================
 
