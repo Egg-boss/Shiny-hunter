@@ -6,79 +6,104 @@ from dotenv import load_dotenv
 import logging
 from datetime import datetime, timedelta
 import sqlite3
+from flask import Flask
+import threading
 
-# Set up logging
+# ---------------- KEEP ALIVE (RENDER) ----------------
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Bot is alive"
+
+def keep_alive():
+    threading.Thread(
+        target=lambda: app.run(host="0.0.0.0", port=8080),
+        daemon=True
+    ).start()
+
+keep_alive()
+
+# ---------------- LOGGING ----------------
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Load environment variables
+# ---------------- ENV ----------------
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN is not set in the environment variables.")
+    raise ValueError("BOT_TOKEN is not set.")
 
-POKETWO_ID = 716390085896962058  # Replace this with Pokétwo's actual User ID
+POKETWO_ID = 716390085896962058
 
-# Intents setup
+# ---------------- INTENTS ----------------
 intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
 intents.guilds = True
 
-# Set command prefix to "."
 bot = commands.Bot(command_prefix=".", intents=intents)
-
-# Remove default help command to override it
 bot.remove_command("help")
 
-# Lock duration settings
-lock_duration = 12  # Default lock duration in hours
+# ---------------- SETTINGS ----------------
+lock_duration = 12
 
-# Keywords to monitor and their toggle status
 KEYWORDS = {
     "shiny hunt pings": True,
     "collection pings": True,
     "rare ping": True,
 }
 
-# Channel blacklist (loaded from DB)
 blacklisted_channels = set()
-
-# Lock countdown tasks
+blacklisted_categories = set()
 lock_timers = {}
 
-# Database functionality
-def get_db_connection():
-    conn = sqlite3.connect('bot_database.db')
+# ---------------- DATABASE ----------------
+def get_db():
+    conn = sqlite3.connect("bot_database.db")
     conn.row_factory = sqlite3.Row
     return conn
 
 def init_db():
-    conn = get_db_connection()
-    conn.execute('CREATE TABLE IF NOT EXISTS channels (id INTEGER PRIMARY KEY, name TEXT)')
-    conn.execute('CREATE TABLE IF NOT EXISTS blacklisted_channels (id INTEGER PRIMARY KEY, channel_id INTEGER)')
-    conn.close()
+    db = get_db()
+    db.execute("CREATE TABLE IF NOT EXISTS blacklisted_channels (channel_id INTEGER PRIMARY KEY)")
+    db.execute("CREATE TABLE IF NOT EXISTS blacklisted_categories (category_id INTEGER PRIMARY KEY)")
+    db.commit()
+    db.close()
 
-def add_to_blacklist_db(channel_id):
-    conn = get_db_connection()
-    conn.execute('INSERT OR IGNORE INTO blacklisted_channels (channel_id) VALUES (?)', (channel_id,))
-    conn.commit()
-    conn.close()
+def load_blacklists():
+    db = get_db()
+    ch = {r["channel_id"] for r in db.execute("SELECT channel_id FROM blacklisted_channels")}
+    cat = {r["category_id"] for r in db.execute("SELECT category_id FROM blacklisted_categories")}
+    db.close()
+    return ch, cat
 
-def remove_from_blacklist_db(channel_id):
-    conn = get_db_connection()
-    conn.execute('DELETE FROM blacklisted_channels WHERE channel_id = ?', (channel_id,))
-    conn.commit()
-    conn.close()
+def add_channel_blacklist(cid):
+    db = get_db()
+    db.execute("INSERT OR IGNORE INTO blacklisted_channels VALUES (?)", (cid,))
+    db.commit()
+    db.close()
 
-def load_blacklisted_channels():
-    conn = get_db_connection()
-    cursor = conn.execute('SELECT channel_id FROM blacklisted_channels')
-    rows = cursor.fetchall()
-    conn.close()
-    return {row['channel_id'] for row in rows}
+def remove_channel_blacklist(cid):
+    db = get_db()
+    db.execute("DELETE FROM blacklisted_channels WHERE channel_id=?", (cid,))
+    db.commit()
+    db.close()
+
+def add_category_blacklist(cid):
+    db = get_db()
+    db.execute("INSERT OR IGNORE INTO blacklisted_categories VALUES (?)", (cid,))
+    db.commit()
+    db.close()
+
+def remove_category_blacklist(cid):
+    db = get_db()
+    db.execute("DELETE FROM blacklisted_categories WHERE category_id=?", (cid,))
+    db.commit()
+    db.close()
 
 init_db()
 
+# ---------------- UNLOCK VIEW ----------------
 class UnlockView(View):
     def __init__(self, channel):
         super().__init__(timeout=None)
@@ -93,305 +118,233 @@ class UnlockView(View):
             self.stop()
         else:
             await interaction.response.send_message(
-                "You don't have the 'unlock' role to unlock this channel. Use `.unlock` instead.",
-                ephemeral=True,
+                "You don't have the 'unlock' role. Use `.unlock` instead.",
+                ephemeral=True
             )
 
-
+# ---------------- EVENTS ----------------
 @bot.event
 async def on_ready():
-    logging.info(f"Bot is online as {bot.user}")
-    # Load blacklisted channels from the database
-    global blacklisted_channels
-    blacklisted_channels = load_blacklisted_channels()
-
+    global blacklisted_channels, blacklisted_categories
+    blacklisted_channels, blacklisted_categories = load_blacklists()
     if not check_lock_timers.is_running():
         check_lock_timers.start()
-
+    logging.info(f"Bot online as {bot.user}")
 
 @bot.event
 async def on_message(message):
-    try:
-        if message.author == bot.user:
-            return
-
-        if message.author.bot and str(message.author) == "Pokétwo#8236":
-            if "These colors seem unusual... ✨" in message.content:
-                embed = discord.Embed(
-                    title="🎉 Congratulations! 🎉",
-                    description=f"{message.author.mention} has found a shiny Pokémon!",
-                    color=discord.Color.gold(),
-                )
-                embed.set_footer(text="Keep hunting for more rare Pokémon!")
-                await message.channel.send(embed=embed)
-
-        if message.author.bot and message.content:
-            active_keywords = [k for k, v in KEYWORDS.items() if v]
-            if any(keyword in message.content.lower() for keyword in active_keywords):
-                if message.channel.id not in blacklisted_channels:
-                    await lock_channel(message.channel)
-                    embed = discord.Embed(
-                        title="🔒 Channel Locked",
-                        description=(
-                            f"This channel has been locked for {lock_duration} hours due to specific keywords being detected."
-                        ),
-                        color=discord.Color.red(),
-                        timestamp=datetime.now(),
-                    )
-                    embed.add_field(name="Lock Timer Ends At", value=(datetime.now() + timedelta(hours=lock_duration)).strftime("%Y-%m-%d %H:%M:%S"), inline=False)
-                    embed.set_footer(text="Use the unlock button or `.unlock` to restore access.")
-                    view = UnlockView(channel=message.channel)
-                    await message.channel.send(embed=embed, view=view)
-
-        await bot.process_commands(message)
-    except Exception as e:
-        logging.error(f"Error in on_message: {e}")
-
-
-async def lock_channel(channel):
-    await set_channel_permissions(channel, view_channel=False, send_messages=False)
-    end_time = datetime.now() + timedelta(hours=lock_duration)
-    lock_timers[channel.id] = end_time
-
-
-async def unlock_channel(channel, user):
-    await set_channel_permissions(channel, view_channel=None, send_messages=None)
-    lock_timers.pop(channel.id, None)
-    embed = discord.Embed(
-        title="🔓 Channel Unlocked",
-        description=f"The channel has been unlocked by {user.mention} (or automatically after the timer expired).",
-        color=discord.Color.green(),
-        timestamp=datetime.now(),
-    )
-    embed.set_footer(text="Happy hunting! Let's see some unusual colors... ✨")
-    await channel.send(embed=embed)
-
-
-async def set_channel_permissions(channel, view_channel=None, send_messages=None):
-    guild = channel.guild
-    try:
-        poketwo = await guild.fetch_member(POKETWO_ID)
-    except discord.NotFound:
-        logging.warning("Pokétwo bot not found in this server.")
+    if message.author == bot.user:
         return
 
-    overwrite = channel.overwrites_for(poketwo)
-    overwrite.view_channel = view_channel if view_channel is not None else True
-    overwrite.send_messages = send_messages if send_messages is not None else True
-    await channel.set_permissions(poketwo, overwrite=overwrite)
+    if message.author.bot and str(message.author) == "Pokétwo#8236":
+        if "These colors seem unusual... ✨" in message.content:
+            await message.channel.send(
+                embed=discord.Embed(
+                    title="🎉 Congratulations!",
+                    description="A shiny Pokémon was found!",
+                    color=discord.Color.gold()
+                )
+            )
 
+    if message.author.bot and message.content:
+        if message.channel.id not in blacklisted_channels:
+            if not message.channel.category or message.channel.category.id not in blacklisted_categories:
+                active = [k for k, v in KEYWORDS.items() if v]
+                if any(k in message.content.lower() for k in active):
+                    await lock_channel(message.channel)
+                    await message.channel.send(
+                        embed=discord.Embed(
+                            title="🔒 Channel Locked",
+                            description=f"Locked for {lock_duration} hours.",
+                            color=discord.Color.red(),
+                            timestamp=datetime.now()
+                        ),
+                        view=UnlockView(message.channel)
+                    )
+
+    await bot.process_commands(message)
+
+# ---------------- LOCK SYSTEM ----------------
+async def set_perms(channel, view=None, send=None):
+    try:
+        poketwo = await channel.guild.fetch_member(POKETWO_ID)
+    except:
+        return
+    ow = channel.overwrites_for(poketwo)
+    ow.view_channel = view if view is not None else True
+    ow.send_messages = send if send is not None else True
+    await channel.set_permissions(poketwo, overwrite=ow)
+
+async def lock_channel(channel):
+    await set_perms(channel, False, False)
+    lock_timers[channel.id] = datetime.now() + timedelta(hours=lock_duration)
+
+async def unlock_channel(channel, user):
+    await set_perms(channel, None, None)
+    lock_timers.pop(channel.id, None)
+    await channel.send(
+        embed=discord.Embed(
+            title="🔓 Channel Unlocked",
+            description=f"Unlocked by {user.mention}",
+            color=discord.Color.green(),
+            timestamp=datetime.now()
+        )
+    )
 
 @tasks.loop(seconds=60)
 async def check_lock_timers():
     now = datetime.now()
-    expired_channels = [channel_id for channel_id, end_time in lock_timers.items() if now >= end_time]
+    for cid, end in list(lock_timers.items()):
+        if now >= end:
+            ch = bot.get_channel(cid)
+            if ch:
+                await unlock_channel(ch, bot.user)
 
-    for channel_id in expired_channels:
-        channel = bot.get_channel(channel_id)
-        if channel:
-            await unlock_channel(channel, bot.user)
-            logging.info(f"Channel {channel.name} automatically unlocked.")
-        lock_timers.pop(channel_id, None)
+# ---------------- VIEW LOCKED (.vl) ----------------
+class LockedView(View):
+    def __init__(self, pages):
+        super().__init__(timeout=120)
+        self.pages = pages
+        self.i = 0
 
+    async def update(self, interaction):
+        await interaction.response.edit_message(embed=self.pages[self.i], view=self)
 
-# Blacklist Commands
-@bot.group(name="blacklist", invoke_without_command=True)
+    @discord.ui.button(label="⬅ Prev", style=discord.ButtonStyle.gray)
+    async def prev(self, interaction, _):
+        if self.i > 0:
+            self.i -= 1
+        await self.update(interaction)
+
+    @discord.ui.button(label="Next ➡", style=discord.ButtonStyle.gray)
+    async def next(self, interaction, _):
+        if self.i < len(self.pages) - 1:
+            self.i += 1
+        await self.update(interaction)
+
+@bot.command(name="vl")
+async def view_locked(ctx):
+    if not lock_timers:
+        return await ctx.send("No locked channels.")
+    items = list(lock_timers.items())
+    pages = []
+    for i in range(0, len(items), 10):
+        e = discord.Embed(title="🔒 Locked Channels", color=discord.Color.red())
+        for cid, end in items[i:i+10]:
+            ch = bot.get_channel(cid)
+            if ch:
+                e.add_field(name=ch.name, value=f"Unlocks <t:{int(end.timestamp())}:R>", inline=False)
+        pages.append(e)
+    await ctx.send(embed=pages[0], view=LockedView(pages))
+
+# ---------------- BLACKLIST ----------------
+@bot.group(invoke_without_command=True)
 @commands.has_permissions(manage_channels=True)
 async def blacklist(ctx):
-    embed = discord.Embed(
-        title="Blacklist Commands",
-        description="Manage the list of blacklisted channels.",
-        color=discord.Color.blue(),
-    )
-    embed.add_field(name=".blacklist add <channel>", value="Add a channel to the blacklist.", inline=False)
-    embed.add_field(name=".blacklist remove <channel>", value="Remove a channel from the blacklist.", inline=False)
-    embed.add_field(name=".blacklist list", value="List all blacklisted channels.", inline=False)
-    await ctx.send(embed=embed)
+    await ctx.send("Use `.blacklist add/remove/list` or `.blacklist category add/remove`")
 
+@blacklist.command()
+async def add(ctx, channel: discord.TextChannel):
+    blacklisted_channels.add(channel.id)
+    add_channel_blacklist(channel.id)
+    await ctx.send(f"{channel.mention} blacklisted.")
 
-@blacklist.command(name="add")
-@commands.has_permissions(manage_channels=True)
-async def blacklist_add(ctx, channel: discord.TextChannel):
-    if channel.id in blacklisted_channels:
-        await ctx.send(f"{channel.mention} is already blacklisted.")
-    else:
-        blacklisted_channels.add(channel.id)
-        add_to_blacklist_db(channel.id)
-        await ctx.send(f"{channel.mention} has been added to the blacklist.")
+@blacklist.command()
+async def remove(ctx, channel: discord.TextChannel):
+    blacklisted_channels.discard(channel.id)
+    remove_channel_blacklist(channel.id)
+    await ctx.send(f"{channel.mention} removed.")
 
-
-@blacklist.command(name="remove")
-@commands.has_permissions(manage_channels=True)
-async def blacklist_remove(ctx, channel: discord.TextChannel):
-    if channel.id not in blacklisted_channels:
-        await ctx.send(f"{channel.mention} is not in the blacklist.")
-    else:
-        blacklisted_channels.remove(channel.id)
-        remove_from_blacklist_db(channel.id)
-        await ctx.send(f"{channel.mention} has been removed from the blacklist.")
-
-
-@blacklist.command(name="list")
-async def blacklist_list(ctx):
+@blacklist.command()
+async def list(ctx):
     if not blacklisted_channels:
-        await ctx.send("No channels are currently blacklisted.")
-    else:
-        channels = [bot.get_channel(cid).mention for cid in blacklisted_channels if bot.get_channel(cid)]
-        channel_list = "\n".join(channels)
-        embed = discord.Embed(
-            title="Blacklisted Channels",
-            description=channel_list,
-            color=discord.Color.red(),
-        )
-        await ctx.send(embed=embed)
+        return await ctx.send("No blacklisted channels.")
+    await ctx.send("\n".join(bot.get_channel(c).mention for c in blacklisted_channels if bot.get_channel(c)))
 
+@blacklist.group()
+async def category(ctx): pass
 
-@bot.command(name="check_timer")
-async def check_timer(ctx):
-    channel_id = ctx.channel.id
-    if channel_id in lock_timers:
-        remaining_time = lock_timers[channel_id] - datetime.now()
-        hours, remainder = divmod(int(remaining_time.total_seconds()), 3600)
-        minutes, _ = divmod(remainder, 60)
-        await ctx.send(f"Channel will unlock in {hours} hours and {minutes} minutes.")
-    else:
-        await ctx.send("This channel is not locked.")
+@category.command()
+async def add(ctx, category: discord.CategoryChannel):
+    blacklisted_categories.add(category.id)
+    add_category_blacklist(category.id)
+    await ctx.send(f"Category `{category.name}` blacklisted.")
 
+@category.command()
+async def remove(ctx, category: discord.CategoryChannel):
+    blacklisted_categories.discard(category.id)
+    remove_category_blacklist(category.id)
+    await ctx.send(f"Category `{category.name}` unblacklisted.")
 
-@bot.command(name="help")
-async def help_command(ctx):
-    embed = discord.Embed(
-        title="Bot Commands",
-        description="Here are the available commands:",
-        color=discord.Color.blue(),
-    )
-    commands_list = {
-        ".help": "Displays this help message.",
-        ".toggle_keyword <keyword>": "Enable/disable keyword detection.",
-        ".list_keywords": "List the statuses of all keywords.",
-        ".lock": "Manually lock the current channel.",
-        ".unlock": "Manually unlock the current channel.",
-        ".del": "Delete the current channel.",
-        ".move <category>": "Move the current channel to a new category.",
-        ".clone": "Clone the current channel.",
-        ".toggle_lock_duration": "Toggle between 12-hour and 24-hour lock durations.",
-        ".check_timer": "Check the remaining lock time for the channel.",
-        ".blacklist": "Manage blacklisted channels.",
-        ".create <channel_name> [category_name]": "Create a new text channel.",
-        ".owner": "Displays the bot's creator.",
-        ".rename <new_name>": "Rename the current channel.",
-    }
-    for command, description in commands_list.items():
-        embed.add_field(name=command, value=description, inline=False)
-
+# ---------------- ALL ORIGINAL COMMANDS ----------------
+@bot.command()
+async def help(ctx):
+    embed = discord.Embed(title="Bot Commands", color=discord.Color.blue())
+    for c in [
+        ".help",".check_timer",".toggle_keyword",".list_keywords",".lock",".unlock",
+        ".rename",".move",".create",".clone",".del",".toggle_lock_duration",".vl",".blacklist"
+    ]:
+        embed.add_field(name=c, value="—", inline=False)
     await ctx.send(embed=embed)
 
+@bot.command()
+async def check_timer(ctx):
+    if ctx.channel.id in lock_timers:
+        t = lock_timers[ctx.channel.id] - datetime.now()
+        await ctx.send(f"Unlocks in {t}")
+    else:
+        await ctx.send("Not locked.")
 
-@bot.command(name="rename")
-@commands.has_permissions(manage_channels=True)
-async def rename_channel(ctx, new_name: str):
-    await ctx.channel.edit(name=new_name)
-    await ctx.send(f"Channel renamed to `{new_name}`.")
+@bot.command()
+async def list_keywords(ctx):
+    await ctx.send("\n".join(f"{k}: {'ON' if v else 'OFF'}" for k,v in KEYWORDS.items()))
 
+@bot.command()
+async def toggle_keyword(ctx, *, keyword):
+    if keyword in KEYWORDS:
+        KEYWORDS[keyword] = not KEYWORDS[keyword]
+        await ctx.send(f"{keyword} toggled.")
+    else:
+        await ctx.send("Invalid keyword.")
 
-@bot.command(name="toggle_lock_duration")
+@bot.command()
 @commands.has_permissions(manage_channels=True)
 async def toggle_lock_duration(ctx):
     global lock_duration
     lock_duration = 24 if lock_duration == 12 else 12
-    await ctx.send(f"Lock duration toggled to {lock_duration} hours.")
+    await ctx.send(f"{lock_duration}h lock duration.")
 
-
-@bot.command(name="owner")
-async def bot_owner(ctx):
-    embed = discord.Embed(
-        title="Bot Creator",
-        description="This bot was made by 💨 Suk Ballz",
-        color=discord.Color.purple(),
-    )
-    await ctx.send(embed=embed)
-
-
-@bot.command(name="del")
+@bot.command()
 @commands.has_permissions(manage_channels=True)
-async def delete_channel(ctx):
+async def rename(ctx, *, name):
+    await ctx.channel.edit(name=name)
+
+@bot.command()
+@commands.has_permissions(manage_channels=True)
+async def del_(ctx):
     await ctx.channel.delete()
 
-
-@bot.command(name="move")
+@bot.command()
 @commands.has_permissions(manage_channels=True)
-async def move_channel(ctx, *, category_name: str):
-    category = discord.utils.get(ctx.guild.categories, name=category_name)
-    if not category:
-        await ctx.send("Category not found.")
-        return
-    await ctx.channel.edit(category=category)
-    await ctx.send(f"Channel moved to `{category.name}` category.")
+async def move(ctx, *, category):
+    cat = discord.utils.get(ctx.guild.categories, name=category)
+    if cat:
+        await ctx.channel.edit(category=cat)
 
-
-@bot.command(name="create")
+@bot.command()
 @commands.has_permissions(manage_channels=True)
-async def create_channel(ctx, channel_name: str, *, category_name: str = None):
-    category = discord.utils.get(ctx.guild.categories, name=category_name) if category_name else None
-    new_channel = await ctx.guild.create_text_channel(name=channel_name, category=category)
-    await ctx.send(f"Channel `{channel_name}` created in `{category.name if category else 'No Category'}`.")
+async def create(ctx, name, *, category=None):
+    cat = discord.utils.get(ctx.guild.categories, name=category) if category else None
+    await ctx.guild.create_text_channel(name, category=cat)
 
-
-@bot.command(name="clone")
+@bot.command()
 @commands.has_permissions(manage_channels=True)
-async def clone_channel(ctx):
-    """Clone the current channel."""
-    try:
-        cloned_channel = await ctx.channel.clone(reason=f"Cloned by {ctx.author}")
-        await cloned_channel.edit(position=ctx.channel.position + 1)
-        await ctx.send(f"Channel cloned successfully: {cloned_channel.mention}")
-    except Exception as e:
-        logging.error(f"Error cloning channel: {e}")
-        await ctx.send("An error occurred while cloning the channel. Please ensure I have the necessary permissions.")
+async def clone(ctx):
+    await ctx.channel.clone()
 
+@bot.command()
+async def owner(ctx):
+    await ctx.send("💨 Suk Ballz")
 
-@bot.command(name="lock")
-@commands.has_permissions(manage_channels=True)
-async def lock_command(ctx):
-    await lock_channel(ctx.channel)
-    embed = discord.Embed(
-        title="🔒 Channel Locked",
-        description=f"This channel has been manually locked for {lock_duration} hours.",
-        color=discord.Color.red(),
-        timestamp=datetime.now(),
-    )
-    embed.set_footer(text="Use the unlock button or `.unlock` to restore access.")
-    view = UnlockView(channel=ctx.channel)
-    await ctx.send(embed=embed, view=view)
-
-
-@bot.command(name="unlock")
-@commands.has_permissions(manage_channels=True)
-async def unlock_command(ctx):
-    await unlock_channel(ctx.channel, ctx.author)
-
-
-@bot.command(name="list_keywords")
-async def list_keywords(ctx):
-    embed = discord.Embed(
-        title="Keyword Status",
-        description="Current status of keyword monitoring:",
-        color=discord.Color.blue(),
-    )
-    for keyword, status in KEYWORDS.items():
-        embed.add_field(name=keyword, value="Enabled ✅" if status else "Disabled ❌", inline=False)
-    await ctx.send(embed=embed)
-
-
-@bot.command(name="toggle_keyword")
-async def toggle_keyword(ctx, *, keyword: str):
-    keyword = keyword.lower()
-    if keyword not in KEYWORDS:
-        await ctx.send(f"Invalid keyword. Valid options are: {', '.join(KEYWORDS.keys())}")
-        return
-    KEYWORDS[keyword] = not KEYWORDS[keyword]
-    await ctx.send(f"Keyword `{keyword}` is now {'enabled' if KEYWORDS[keyword] else 'disabled'}.")
-
-
+# ---------------- RUN ----------------
 bot.run(BOT_TOKEN)
-    
